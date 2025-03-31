@@ -1,0 +1,163 @@
+
+Analysis Summary:
+---------------
+Total Incidents: 10
+Total Estimated Value: $76,000.00
+
+Crime Types:
+crime_type
+robbery                      4
+theft                        3
+burglary                     1
+armed robbery, kidnapping    1
+robbery, kidnapping          1
+
+Methods Used:
+method
+unknown            3
+armed robbery      2
+smash-and-grab     2
+grab and run       2
+violent robbery    1
+
+Targets:
+target
+jewelry store            5
+jewelry loan store       1
+individual               1
+luxury watch retailer    1
+pawn shop                1
+store in Sunrise mall    1
+
+Locations:
+location
+California    10
+
+Key Patterns:
+- Most common crime type: robbery (4 incidents)
+- Most common method: unknown (3 incidents)
+- Most common target: jewelry store (5 incidents)
+- Most affected location: California (10 incidents)
+
+Individual Article Summaries:
+---------------------------
+
+Article: CANOGA PARK, LOS ANGELES, CA-Thieves Target Canoga Park Jewelry Loan Store in Burglary Attempt.
+Location: California
+Date: Not specified
+Crime Type: Unknown
+Method: unknown
+Target: jewelry loan store
+Estimated Value: Not specified
+Number of Suspects: Not specified
+Key Details: none mentioned
+URL: https://jewelerssecurity.org/canoga-park-los-angeles-ca-thieves-target-canoga-park-jewelry-loan-store-in-burglary-attempt/
+
+
+Article: Downey, California -3 Arrested in connection with armed robbery, kidnapping at Downey jewelry store.
+Location: California
+Date: Not specified
+Crime Type: Unknown
+Method: armed robbery
+Target: jewelry store
+Estimated Value: Not specified
+Number of Suspects: Not specified
+Key Details: suspects arrested after the incident
+URL: https://jewelerssecurity.org/downey-california-update-3-arrested-in-connection-with-armed-robbery-kidnapping-at-downey-jewelry-store/
+
+
+Article: Monterey, CA- Caught on Camera: Monterey jeweler loses $20,000 in Valentine’s Day theft.
+Location: California
+Date: Not specified
+Crime Type: Unknown
+Method: unknown
+Target: jewelry store
+Estimated Value: Not specified
+Number of Suspects: Not specified
+Key Details: theft occurred on Valentine's Day
+URL: https://jewelerssecurity.org/monterey-ca-caught-on-camera-monterey-jeweler-loses-20000-in-valentines-day-theft/
+
+
+Article: San Carlos, CA- : 18-year-old arrested in $56,000 jewelry store robbery.
+Location: California
+Date: Not specified
+Crime Type: Unknown
+Method: unknown
+Target: jewelry store
+Estimated Value: Not specified
+Number of Suspects: Not specified
+Key Details: suspect is 18 years old
+URL: https://jewelerssecurity.org/san-carlos-ca-18-year-old-arrested-in-56000-jewelry-store-robbery/
+
+
+Article: Los Angelas, CA- $100K in jewelry stolen in Violent Kidnapping, Robbery in Southern California
+Location: California
+Date: Not specified
+Crime Type: Unknown
+Method: violent robbery
+Target: individual
+Estimated Value: Not specified
+Number of Suspects: Not specified
+Key Details: violent robbery involving kidnapping
+URL: https://jewelerssecurity.org/los-angelas-ca-100k-in-jewelry-stolen-in-violent-kidnapping-robbery-in-southern-california/
+
+
+Article: Roseville, CA- 5 men, 1 teen arrested in $1.5 million jewelry robbery at Roseville’s Westfield Galleria mall.
+Location: California
+Date: Not specified
+Crime Type: Unknown
+Method: smash-and-grab
+Target: jewelry store
+Estimated Value: Not specified
+Number of Suspects: Not specified
+Key Details: high value theft from mall jewelry store
+URL: https://jewelerssecurity.org/roseville-ca-5-men-1-teen-arrested-in-1-5-million-jewelry-robbery-at-rosevilles-westfield-galleria-mall/
+
+
+Article: Beverly Hills, CA- Five Arrested After Smash-and-Grab Robbery at Waldorf Astoria Retailer.
+Location: California
+Date: Not specified
+Crime Type: Unknown
+Method: smash-and-grab
+Target: luxury watch retailer
+Estimated Value: Not specified
+Number of Suspects: Not specified
+Key Details: 
+URL: https://jewelerssecurity.org/beverly-hills-ca-five-arrested-after-smash-and-grab-robbery-at-waldorf-astoria-retailer/
+
+
+Article: Turlock, California – Surveillance video shows employees held at gunpoint in Turlock pawn shop robbery of jewelry.
+Location: California
+Date: Not specified
+Crime Type: Unknown
+Method: armed robbery
+Target: pawn shop
+Estimated Value: Not specified
+Number of Suspects: Not specified
+Key Details: employees held at gunpoint, surveillance video captured incident
+URL: https://jewelerssecurity.org/turlock-california-surveillance-video-shows-employees-held-at-gunpoint-in-turlock-pawn-shop-robbery-of-jewelry/
+
+
+Article: Camarillo, CA- GRAB AND RUN.
+Location: California
+Date: Not specified
+Crime Type: Unknown
+Method: grab and run
+Target: jewelry store
+Estimated Value: Not specified
+Number of Suspects: Not specified
+Key Details: none mentioned
+URL: https://jewelerssecurity.org/camarillo-ca-grab-and-run/
+
+
+Article: Citrus, Heights, CA- GRAB AND RUN.
+Location: California
+Date: Not specified
+Crime Type: Unknown
+Method: grab and run
+Target: store in Sunrise mall
+Estimated Value: Not specified
+Number of Suspects: Not specified
+Key Details: suspect had previously visited the store
+URL: https://jewelerssecurity.org/citrus-heights-ca-grab-and-run/
+

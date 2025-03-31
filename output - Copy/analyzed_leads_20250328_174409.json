@@ -1,0 +1,40 @@
+[
+  {
+    "source_url": "https://example.com/news/1",
+    "source_title": "Smash-and-Grab at Luxury Jewelry Store in Downtown",
+    "analyzed_at": "2025-03-28T17:44:13.642049",
+    "business_name": "Diamond Emporium",
+    "address": "unknown",
+    "city": "unknown",
+    "state": "unknown",
+    "zip": "unknown",
+    "store_type": "high-end",
+    "incident_date": "unknown",
+    "incident_time": "3 AM",
+    "entry_method": "smash-and-grab",
+    "items_stolen": "luxury watches and jewelry",
+    "estimated_value": "$500,000",
+    "failed_security": "reinforced glass storefront",
+    "lead_quality_score": 8,
+    "reasoning": "The Diamond Emporium is a high-end jewelry store that was targeted in a brazen smash-and-grab robbery, resulting in the theft of an estimated $500,000 worth of luxury items. The fact that the thieves were able to breach the reinforced glass storefront suggests that the existing security measures failed to prevent the break-in. This, combined with the high-value inventory and upscale location, makes this a very attractive lead for a security company looking to provide solutions to prevent similar incidents in the future. The lead quality score is high due to the potential for a lucrative contract to secure a high-profile, high-value target."
+  },
+  {
+    "source_url": "https://example.com/news/2",
+    "source_title": "Chain Store Hit in Mall Break-in",
+    "analyzed_at": "2025-03-28T17:44:14.413491",
+    "business_name": "Kay Jewelers",
+    "address": "Metroplex Mall",
+    "city": "unknown",
+    "state": "unknown",
+    "zip": "unknown",
+    "store_type": "chain store",
+    "incident_date": "unknown",
+    "incident_time": "overnight",
+    "entry_method": "breaking in through the back entrance after disabling the alarm system",
+    "items_stolen": "multiple display cases were emptied",
+    "estimated_value": "unknown",
+    "failed_security": "alarm system, security cameras",
+    "lead_quality_score": 8,
+    "reasoning": "This incident involves a chain jewelry store with high-value inventory that was targeted in an overnight break-in where the existing security measures failed. The fact that it is a chain store means the security company could potentially implement solutions at multiple locations, increasing the lead quality. Additionally, the upscale location and high-value inventory contribute to a higher lead quality score."
+  }
+]
