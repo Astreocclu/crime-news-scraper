@@ -34,7 +34,16 @@ pip install -r requirements.txt
 
 ## Configuration
 
-The project uses direct API keys in the test analyzer files for testing purposes. The main configuration parameters are:
+### Environment Variables
+
+The project uses environment variables for sensitive configuration:
+
+1. Create a `.env` file in the project root with the following variables:
+```
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+```
+
+2. The application will automatically load these environment variables when started.
 
 ### Analyzer Configuration
 - `batch_size`: Number of articles to process in each batch (default: 10)

@@ -99,6 +99,7 @@ def run_analyzer(input_file: str):
         from analyzer.test_analyzer_single_batch2 import TestAnalyzerSingleBatch
         
         # Initialize and run the analyzer
+        # TestAnalyzerSingleBatch now loads API key from environment variables
         analyzer = TestAnalyzerSingleBatch()
         success = analyzer.process_single_batch(input_file)
         

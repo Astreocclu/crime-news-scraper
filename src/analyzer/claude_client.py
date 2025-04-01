@@ -1,19 +1,46 @@
 """Claude API client for article analysis."""
 
 import logging
+import os
 from typing import Dict, Optional
 import anthropic
 from datetime import datetime
 import json
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+def get_api_key() -> str:
+    """Get the Anthropic API key from environment variables.
+    
+    Returns:
+    --------
+    str
+        The Anthropic API key
+        
+    Raises:
+    -------
+    ValueError
+        If the API key is not set
+    """
+    load_dotenv()
+    api_key = os.getenv('ANTHROPIC_API_KEY')
+    if not api_key:
+        raise ValueError("ANTHROPIC_API_KEY environment variable not set")
+    return api_key
 
 class ClaudeClient:
     """Client for interacting with Claude AI API."""
     
-    def __init__(self, api_key: str):
-        """Initialize the Claude client with API key."""
-        self.client = anthropic.Client(api_key=api_key)
+    def __init__(self, api_key: Optional[str] = None):
+        """Initialize the Claude client with API key.
+        
+        Parameters:
+        -----------
+        api_key : Optional[str], optional
+            The Anthropic API key. If not provided, it will be loaded from environment variables.
+        """
+        self.client = anthropic.Client(api_key=api_key or get_api_key())
         
     def analyze(self, prompt: str, max_tokens: int = 4000, temperature: float = 0.7) -> Dict:
         """
@@ -110,4 +137,4 @@ class ClaudeClient:
                 'crime_date': None,
                 'article_date': None,
                 'security_needed': False
-            } 
+            }

@@ -27,8 +27,10 @@ class TestAnalyzerSingleBatch:
 
     def __init__(self):
         """Initialize the analyzer with API key and parameters."""
-        # Direct API key for testing
-        self.api_key = "REMOVED_API_KEY"
+        # Import the get_api_key function from claude_client
+        from .claude_client import get_api_key
+        
+        self.api_key = get_api_key()  # This will load from .env and validate
         self.batch_size = 10
         self.max_tokens = 4000
         self.temperature = 0.7
