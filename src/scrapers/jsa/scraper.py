@@ -3,10 +3,13 @@
 import logging
 import time
 import re
+import requests
 from typing import Dict, List, Optional
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -28,13 +31,17 @@ class JSAScraper(BaseScraper):
         self.driver = None
     
     def setup_driver(self):
-        """Set up and return a configured Chrome WebDriver"""
+        """Set up and return a configured Chrome/Chromium WebDriver"""
         chrome_options = Options()
         
         # Basic options for headless mode
         chrome_options.add_argument('--headless=new')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
+        # Additional options to help with running in CI/CD or environments without Chrome
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument('--disable-software-rasterizer')
         
         # Create the driver with retry logic
         max_retries = 3
@@ -42,11 +49,32 @@ class JSAScraper(BaseScraper):
             try:
                 logger.info(f"Attempting to create WebDriver (attempt {attempt + 1}/{max_retries})")
                 
-                # Create driver with minimal options
-                self.driver = webdriver.Chrome(options=chrome_options)
-                self.driver.set_page_load_timeout(30)
-                
-                return self.driver
+                # Try to use Chromium directly (if installed)
+                try:
+                    logger.info("Attempting to use Chromium directly")
+                    chrome_options.binary_location = "/usr/bin/chromium-browser"  # Location of Chromium on this system
+                    # Add a unique user data directory to avoid conflicts
+                    import tempfile
+                    import os
+                    import uuid
+                    temp_dir = tempfile.mkdtemp(prefix="chromium_data_")
+                    # Add a UUID to ensure unique user data directory
+                    unique_id = str(uuid.uuid4())
+                    user_data_dir = os.path.join(temp_dir, unique_id)
+                    chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
+                    logger.info(f"Using temporary user data directory: {user_data_dir}")
+                    self.driver = webdriver.Chrome(options=chrome_options)
+                    self.driver.set_page_load_timeout(30)
+                    return self.driver
+                except Exception as chromium_error:
+                    logger.warning(f"Could not use Chromium directly: {str(chromium_error)}")
+                    
+                    # Fall back to webdriver_manager approach
+                    logger.info("Falling back to webdriver_manager")
+                    service = Service(ChromeDriverManager().install())
+                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
+                    self.driver.set_page_load_timeout(30)
+                    return self.driver
                 
             except Exception as e:
                 logger.error(f"Error creating WebDriver (attempt {attempt + 1}): {str(e)}")
@@ -67,7 +95,15 @@ class JSAScraper(BaseScraper):
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                logger.info(f"Attempting to fetch page (attempt {attempt + 1}/{max_retries}): {url}")
+                logger.info(f"Attempting to fetch page with Selenium (attempt {attempt + 1}/{max_retries}): {url}")
+                
+                # Ensure we have a driver
+                if not self.driver:
+                    self.setup_driver()
+                
+                # If still no driver, use requests as fallback
+                if not self.driver:
+                    return self._fetch_with_requests(url)
                 
                 # Set a shorter timeout for initial page load
                 self.driver.set_page_load_timeout(15)
@@ -107,8 +143,44 @@ class JSAScraper(BaseScraper):
                 if attempt < max_retries - 1:
                     time.sleep(2)  # Short delay before retry
                 continue
+        
+        # If Selenium fails completely, try with requests as a fallback
+        logger.info("Selenium failed, trying with requests as fallback")
+        return self._fetch_with_requests(url)
+    
+    def _fetch_with_requests(self, url: str) -> Optional[str]:
+        """Fallback method to fetch page with requests if Selenium fails"""
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Attempting to fetch page with requests (attempt {attempt + 1}/{max_retries}): {url}")
                 
-        logger.error("Failed to fetch page after all retries")
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
+                }
+                
+                response = requests.get(url, headers=headers, timeout=15)
+                
+                if response.status_code == 200:
+                    page_content = response.text
+                    
+                    if not page_content or len(page_content.strip()) < 100:
+                        logger.warning("Page content from requests is empty or too short")
+                        continue
+                        
+                    return page_content
+                else:
+                    logger.error(f"Failed to fetch page with requests. Status code: {response.status_code}")
+                    
+            except Exception as e:
+                logger.error(f"Error fetching page with requests (attempt {attempt + 1}): {str(e)}")
+                
+            if attempt < max_retries - 1:
+                time.sleep(2)  # Short delay before retry
+                
+        logger.error("Failed to fetch page with both Selenium and requests")
         return None
     
     def find_element(self, container, selectors):
