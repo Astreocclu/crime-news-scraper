@@ -1,17 +1,21 @@
 # Crime News Scraper
 
-A modular and extensible crime news scraper that collects jewelry theft articles from multiple sources and analyzes them using Claude AI to identify security product sales opportunities.
+A modular and extensible crime news scraper that collects jewelry theft articles from multiple sources and analyzes them using Claude AI to identify sales opportunities for security screen products.
 
 GitHub Repository: [https://github.com/Astreocclu/crime-news-scraper](https://github.com/Astreocclu/crime-news-scraper)
+
+## Product Focus
+
+This system is specifically designed to generate qualified sales leads for **American Security Screens** - high-quality stainless steel mesh security screens for windows and doors that prevent smash-and-grab and forced entry incidents at jewelry businesses. The scraper identifies businesses that have recently experienced theft, creating targeted sales opportunities with a 5% commission structure.
 
 ## Features
 
 - **Sales Lead Generation**: Identify jewelry businesses that recently experienced theft incidents
 - **Risk Assessment Scoring**: Evaluate security vulnerabilities and priority sales targets
-- **Sales Intelligence**: Generate engaging headlines and security recommendations for sales pitches
+- **Sales Intelligence**: Generate engaging headlines and security recommendations for security screen sales pitches
 - **Business Impact Analysis**: Calculate potential impact scores to strengthen sales conversations
 - **Modular Architecture**: Easily expand to new news sources for wider lead generation
-- **AI-powered Analysis**: Extract actionable intelligence to drive security product sales
+- **AI-powered Analysis**: Extract actionable intelligence to drive security screen product sales
 
 ## Prerequisites
 
@@ -52,11 +56,15 @@ ANTHROPIC_API_KEY=your_anthropic_api_key_here
 - `output_dir`: Directory for storing processed data (default: output)
 
 ### Sales Intelligence Features
-The analyzer extracts key sales-focused data points:
-- `riskAssessment`: Priority classification (SEVERE, HIGH, MODERATE, BASIC)
+The analyzer extracts key sales-focused data points specifically optimized for security screen product sales:
+
+- `riskAssessment`: Priority classification (SEVERE, HIGH, MODERATE, BASIC) to identify highest-need targets
 - `businessImpactScore`: 1-10 rating of impact severity for sales urgency
-- `securityRecommendation`: Specific product recommendations based on crime type
+- `securityRecommendation`: Specific security screen recommendations based on crime type
 - `businessName` and `exactAddress`: Automatically enriched target business information
+- `salesPitchHeadline`: Attention-grabbing headlines for security screen sales outreach
+- `comparableIncident`: Similar incidents to reference during sales conversations
+- `interestingFactForSales`: Data points to strengthen security screen product conversations
 
 ## Usage
 
@@ -119,19 +127,22 @@ The system follows a modular design with three main components:
 
 ## Sales Lead Generation Workflow
 
-1. **Source Monitoring**: The unified scraper continuously monitors news sources for jewelry crime incidents
-2. **Lead Collection**: Modular scrapers extract relevant business theft incidents
+1. **Source Monitoring**: The unified scraper continuously monitors news sources for jewelry crime incidents, focusing on the JSA (Jewelers Security Alliance) website initially
+2. **Lead Collection**: Modular scrapers extract relevant business theft incidents, particularly those involving forced entry or smash-and-grab crimes
 3. **Data Standardization**:
    - Fetches theft incident details from news sources
    - Processes and standardizes the data for analysis
    - Saves potential leads to CSV in the output directory
 4. **Lead Qualification**:
    - Uses Claude AI to validate leads and enrich business information
-   - Identifies precise business locations and contact information
-   - Analyzes crime patterns and severity to determine urgency
-   - Calculates business impact scores to prioritize outreach
-   - Generates specific security product recommendations
-   - Creates prioritized lead reports for sales teams
+   - Identifies precise business locations and contact information for security screen sales visits
+   - Analyzes crime patterns and severity to determine security screen sales urgency
+   - Calculates business impact scores to prioritize security screen outreach
+   - Generates specific security screen product recommendations
+   - Creates prioritized lead reports for American Security Screens sales teams
+5. **Commission Structure**:
+   - The system is optimized to generate qualified leads that convert to actual security screen sales
+   - Each successful sale initiated through the system's leads generates a 5% commission
 
 ## Development
 

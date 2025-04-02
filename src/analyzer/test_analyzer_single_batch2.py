@@ -125,11 +125,16 @@ class TestAnalyzerSingleBatch:
                 business_info = json.loads(result_text)
                 
                 # Update the analysis with the enhanced information
-                if business_info.get('inferredBusinessName') and business_info.get('confidence') != 'low':
-                    analysis['businessName'] = f"{business_info['inferredBusinessName']} (inferred: {business_info['confidence']} confidence)"
+                if business_info.get('inferredBusinessName'):
+                    analysis['businessName'] = business_info['inferredBusinessName']
+                    analysis['businessNameConfidence'] = business_info.get('confidence', 'low')
                     
-                if business_info.get('inferredAddress') and business_info.get('addressConfidence') != 'low':
-                    analysis['exactAddress'] = f"{business_info['inferredAddress']} (inferred: {business_info['addressConfidence']} confidence)"
+                if business_info.get('inferredAddress'):
+                    # Normalize address format
+                    raw_address = business_info['inferredAddress']
+                    normalized_address = self._normalize_address(raw_address)
+                    analysis['exactAddress'] = normalized_address
+                    analysis['addressConfidence'] = business_info.get('addressConfidence', 'low')
                     
                 analysis['businessInferenceReasoning'] = business_info.get('reasoning', '')
                 
@@ -271,19 +276,105 @@ class TestAnalyzerSingleBatch:
             
         return analysis
     
+    def _normalize_address(self, address):
+        """
+        Normalize address format for geocoding readiness:
+        - Handle common abbreviations
+        - Remove any extra notations or parentheses
+        - Ensure consistent format
+        - Format: [Street Number] [Street Name], [City], [State] [ZIP]
+        
+        Parameters:
+        -----------
+        address : str
+            Raw address string to normalize
+            
+        Returns:
+        --------
+        str
+            Normalized address string
+        """
+        if not address:
+            return ""
+            
+        # Remove any confidence indicators or other parenthetical notes
+        address = re.sub(r'\s*\([^)]*\)', '', address)
+        
+        # Dictionary of abbreviation replacements
+        abbr_map = {
+            # Street types
+            r'\bSt\b': 'Street',
+            r'\bAve\b': 'Avenue',
+            r'\bBlvd\b': 'Boulevard',
+            r'\bRd\b': 'Road',
+            r'\bDr\b': 'Drive',
+            r'\bLn\b': 'Lane',
+            r'\bPkwy\b': 'Parkway',
+            r'\bHwy\b': 'Highway',
+            r'\bCt\b': 'Court',
+            r'\bCir\b': 'Circle',
+            r'\bPl\b': 'Place',
+            r'\bTer\b': 'Terrace',
+            
+            # Directionals
+            r'\bN\.?\b': 'North',
+            r'\bS\.?\b': 'South',
+            r'\bE\.?\b': 'East',
+            r'\bW\.?\b': 'West',
+            r'\bNE\b': 'Northeast',
+            r'\bNW\b': 'Northwest',
+            r'\bSE\b': 'Southeast',
+            r'\bSW\b': 'Southwest',
+            
+            # States - keep as two-letter codes for geocoding APIs
+            # Most geocoding APIs prefer 2-letter state codes
+            r'\bCalifornia\b': 'CA',
+            r'\bTexas\b': 'TX',
+            r'\bNevada\b': 'NV',
+            r'\bArizona\b': 'AZ',
+            r'\bGeorgia\b': 'GA',
+        }
+        
+        # Apply abbreviation standardization
+        normalized = address
+        for abbr, full in abbr_map.items():
+            normalized = re.sub(abbr, full, normalized)
+        
+        # Ensure consistent comma separation
+        normalized = re.sub(r'\s*,\s*', ', ', normalized)
+        
+        # Ensure consistent spacing
+        normalized = re.sub(r'\s+', ' ', normalized)
+        
+        # Clean up any trailing punctuation
+        normalized = normalized.strip('.,; ')
+        
+        return normalized
+        
     def _find_business_address(self, analysis):
         """Find the exact address for a known business name"""
-        if not analysis.get('businessName') or analysis['businessName'] in ['Not specified', 'Not mentioned']:
+        # Only skip if we don't have a business name AND don't have location info
+        if (not analysis.get('businessName') or analysis['businessName'] in ['Not specified', 'Not mentioned']) and not analysis.get('detailedLocation'):
             return analysis
             
-        business_name = analysis['businessName']
+        business_name = analysis.get('businessName', '')
         location = analysis.get('detailedLocation', '')
+        store_type = analysis.get('storeType', '')
         
         # Clean up inferred confidence notation if present
-        if '(inferred:' in business_name:
+        if business_name and '(inferred:' in business_name:
             business_name = business_name.split('(inferred:')[0].strip()
         
-        query = f"{business_name} jewelry {location} address"
+        # Construct an appropriate query based on available information
+        if business_name and business_name not in ['Not specified', 'Not mentioned']:
+            query = f"{business_name} jewelry {location} address"
+        elif location and store_type and store_type not in ['Not specified', 'Not mentioned']:
+            query = f"{store_type} in {location} address"
+        elif location:
+            query = f"jewelry store in {location} address"
+        else:
+            return analysis  # Not enough info to search
+            
         logger.info(f"Searching for address with query: {query}")
         
         try:
@@ -326,11 +417,16 @@ class TestAnalyzerSingleBatch:
                 address_info = json.loads(result_text)
                 
                 # Update the analysis with the address information
-                if address_info.get('address') and address_info.get('confidence') != 'low':
-                    analysis['exactAddress'] = f"{address_info['address']} (confidence: {address_info['confidence']})"
+                if address_info.get('address'):
+                    # Normalize address format
+                    raw_address = address_info['address']
+                    normalized_address = self._normalize_address(raw_address)
+                    analysis['exactAddress'] = normalized_address
+                    analysis['addressConfidence'] = address_info.get('confidence', 'low')
                     
                 if address_info.get('businessName') and address_info.get('businessName') != business_name:
-                    analysis['businessName'] = f"{address_info['businessName']} (verified)"
+                    analysis['businessName'] = address_info['businessName']
+                    analysis['businessNameConfidence'] = 'high'  # Verified business name gets high confidence
                     
                 analysis['addressSource'] = address_info.get('source', '')
                 
@@ -643,7 +739,9 @@ Article: {article.get('title', '')}
 Location: {article.get('location', '')}
 Detailed Location: {analysis.get('detailedLocation', 'Not specified')}
 Business Name: {analysis.get('businessName', 'Not specified')}
+Business Name Confidence: {analysis.get('businessNameConfidence', 'Not available')}
 Exact Address: {analysis.get('exactAddress', 'Not available')}
+Address Confidence: {analysis.get('addressConfidence', 'Not available')}
 Store Type: {analysis.get('storeType', 'Not specified')}
 Date of Article: {article_date if article_date else 'Not specified'}
 Scraping Date: {scraping_date if scraping_date else 'Not available'}
