@@ -20,6 +20,9 @@ numpy==1.26.4
 # AI/ML
 anthropic==0.18.1  # Claude API client
 
+# Geospatial
+googlemaps==4.10.0  # Google Maps API client
+
 # Date/Time Processing
 python-dateutil==2.8.2
 pytz==2024.1 

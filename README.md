@@ -16,6 +16,7 @@ This system is specifically designed to generate qualified sales leads for **Ame
 - **Business Impact Analysis**: Calculate potential impact scores to strengthen sales conversations
 - **Modular Architecture**: Easily expand to new news sources for wider lead generation
 - **AI-powered Analysis**: Extract actionable intelligence to drive security screen product sales
+- **High-Value Target Expansion**: Discover nearby luxury goods, sports memorabilia, vape/smoke shops, and jewelry stores for additional sales opportunities
 
 ## Prerequisites
 
@@ -45,6 +46,7 @@ The project uses environment variables for sensitive configuration:
 1. Create a `.env` file in the project root with the following variables:
 ```
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
+GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
 ```
 
 2. The application will automatically load these environment variables when started.
@@ -87,13 +89,21 @@ python src/main.py
 │   │   │   ├── scraper.py # JSA scraper implementation
 │   │   │   └── utils.py   # JSA utility functions
 │   │   └── dfw/           # DFW scraper module
-│   └── analyzer/          # Analysis module
+│   ├── analyzer/          # Analysis module
+│   │   ├── __init__.py
+│   │   ├── analyzer.py    # Main analyzer implementation
+│   │   └── claude_client.py # Claude API integration
+│   └── nearby_finder/     # Nearby business finder module
 │       ├── __init__.py
-│       ├── analyzer.py    # Main analyzer implementation
-│       └── claude_client.py # Claude API integration
+│       ├── finder.py      # Main nearby business finder implementation
+│       ├── google_client.py # Google Maps API integration
+│       └── config.py      # Finder configuration (radius, target types)
 ├── tests/                 # Test files
 ├── config/               # Global configuration
 ├── output/              # Generated output files
+│   ├── scraped/         # Original scraped data
+│   ├── analyzed/        # Analyzed business data
+│   └── nearby/          # Nearby business data
 ├── test_data/           # Test data files
 ├── requirements.txt     # Project dependencies
 └── .env                # Environment variables
@@ -101,7 +111,7 @@ python src/main.py
 
 ## System Architecture
 
-The system follows a modular design with three main components:
+The system follows a modular design with four main components:
 
 1. **Unified Scraper**
    - Acts as the main orchestrator for lead generation
@@ -125,6 +135,15 @@ The system follows a modular design with three main components:
      - Generate tailored security product recommendations
      - Prioritize leads based on multiple factors
 
+4. **Nearby Business Finder**
+   - Uses Google Maps API to identify additional high-value targets near incident locations
+   - Focuses on luxury goods stores, sports memorabilia shops, vape/smoke shops, and jewelry stores
+   - Generates a dedicated spreadsheet with:
+     - Business name, address, and store type
+     - Distance from original incident location
+     - Original incident details (date, crime type, value of stolen items)
+   - Provides target locations for cross-referencing with existing lead lists for outreach campaigns
+
 ## Sales Lead Generation Workflow
 
 1. **Source Monitoring**: The unified scraper continuously monitors news sources for jewelry crime incidents, focusing on the JSA (Jewelers Security Alliance) website initially
@@ -140,17 +159,48 @@ The system follows a modular design with three main components:
    - Calculates business impact scores to prioritize security screen outreach
    - Generates specific security screen product recommendations
    - Creates prioritized lead reports for American Security Screens sales teams
-5. **Commission Structure**:
+5. **High-Value Target Expansion**:
+   - Identifies nearby luxury goods stores, sports memorabilia shops, vape/smoke shops, and jewelry businesses within configurable radius of incident locations
+   - Generates a dedicated spreadsheet of high-value targets for targeted security screen outreach
+   - References original incident details with each nearby business to strengthen sales urgency
+   - Creates an "early prevention" sales strategy for businesses that haven't yet experienced theft
+   - Enables "neighborhood sweep" approach for efficient in-person sales visits focusing on all high-value merchandise locations
+6. **Commission Structure**:
    - The system is optimized to generate qualified leads that convert to actual security screen sales
    - Each successful sale initiated through the system's leads generates a 5% commission
 
 ## Development
 
-To add a new scraper:
+### Adding a New Scraper
 1. Create a new module in `src/scrapers/`
 2. Implement the base scraper interface
 3. Add configuration in the module's directory
 4. Update the unified scraper to include the new module
+
+### Setting Up the Nearby Business Finder
+
+To utilize the Google Maps API for finding nearby high-value targets:
+
+1. **Get a Google Maps API Key**
+   - Create a project in Google Cloud Platform
+   - Enable the Places API and Maps JavaScript API
+   - Generate an API key with appropriate restrictions
+   - Add the key to your `.env` file
+
+2. **Configure Target Types**
+   - Edit `src/nearby_finder/config.py` to modify:
+     - Search radius (default: 1 mile)
+     - Target business types (luxury goods, sports memorabilia, vape/smoke shops, jewelry)
+     - Maximum number of results per category
+
+3. **Run the Nearby Finder**
+   ```bash
+   python src/nearby_finder/finder.py --input-file output/analyzed/analyzed_leads_YYYYMMDD_HHMMSS.csv
+   ```
+
+4. **Output Files**
+   - Results are saved to `output/nearby/nearby_businesses_YYYYMMDD_HHMMSS.csv`
+   - Each row contains both the original incident data and the nearby business information
 
 ## Development Philosophy
 

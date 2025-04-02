@@ -1,9 +1,14 @@
-"""JSA scraper implementation."""
+"""
+JSA scraper implementation.
 
-import logging
+This module provides a Selenium-based scraper for the Jewelers Security Alliance (JSA) 
+website, extracting jewelry theft incidents and related information.
+"""
+
 import time
 import re
 import requests
+import os
 from typing import Dict, List, Optional
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -18,8 +23,11 @@ from selenium.common.exceptions import TimeoutException
 from ..base import BaseScraper, Article
 from .config import JSA_CONFIG, MONITORED_LOCATIONS
 from .utils import detect_location, extract_keywords, is_business_related, standardize_date
+from src.utils.logger import get_logger
+from src.utils.exceptions import ScraperNetworkError, ScraperParsingError
 
-logger = logging.getLogger(__name__)
+# Get a logger for this module
+logger = get_logger(__name__)
 
 class JSAScraper(BaseScraper):
     """Selenium-based JSA scraper implementation"""
@@ -428,55 +436,75 @@ def main():
     """Run the JSA scraper directly"""
     import csv
     from datetime import datetime
+    from src.utils.logger import get_logger, log_execution_time, get_dated_log_filename
     
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+    # Get a dedicated logger for the main function
+    main_logger = get_logger("jsa_scraper_main")
     
-    scraper = JSAScraper()
-    results = scraper.scrape_crimes_category()  # No max_pages specified means scrape all pages
+    @log_execution_time(main_logger, "JSA Scraper: ")
+    def run_scraper():
+        scraper = JSAScraper()
+        return scraper.scrape_crimes_category()  # No max_pages specified means scrape all pages
+    
+    # Run the scraper with execution time logging
+    main_logger.info("Starting JSA scraper run")
+    results = run_scraper()
     
     # Create output directory if it doesn't exist
-    import os
-    os.makedirs('output', exist_ok=True)
+    output_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "output")
+    os.makedirs(output_dir, exist_ok=True)
     
     # Generate filename with timestamp
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_file = f'output/jsa_articles_{timestamp}.csv'
+    output_file = os.path.join(output_dir, f'jsa_articles_{timestamp}.csv')
+    
+    # Count total articles
+    total_articles = sum(len(articles) for articles in results.values())
+    main_logger.info(f"Found {total_articles} articles across {len(results)} locations")
     
     # Write results to CSV
-    with open(output_file, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=[
-            'location', 'title', 'date', 'url', 'excerpt',
-            'source', 'keywords', 'is_theft_related', 'is_business_related'
-        ])
-        writer.writeheader()
+    try:
+        with open(output_file, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=[
+                'location', 'title', 'date', 'url', 'excerpt',
+                'source', 'keywords', 'is_theft_related', 'is_business_related'
+            ])
+            writer.writeheader()
+            
+            for location, articles in results.items():
+                for article in articles:
+                    row = {
+                        'location': location,
+                        'title': article['title'],
+                        'date': article['date'],
+                        'url': article['url'],
+                        'excerpt': article['excerpt'],
+                        'source': article['source'],
+                        'keywords': ','.join(article['keywords']),
+                        'is_theft_related': article['is_theft_related'],
+                        'is_business_related': article['is_business_related']
+                    }
+                    writer.writerow(row)
         
-        for location, articles in results.items():
-            for article in articles:
-                row = {
-                    'location': location,
-                    'title': article['title'],
-                    'date': article['date'],
-                    'url': article['url'],
-                    'excerpt': article['excerpt'],
-                    'source': article['source'],
-                    'keywords': ','.join(article['keywords']),
-                    'is_theft_related': article['is_theft_related'],
-                    'is_business_related': article['is_business_related']
-                }
-                writer.writerow(row)
-    
-    logger.info(f"Results saved to {output_file}")
-    
-    # Print summary to console
-    for location, articles in results.items():
-        print(f"\n{location}:")
-        for article in articles:
-            print(f"- {article['title']} ({article['date']})")
-            print(f"  URL: {article['url']}")
-            print(f"  Keywords: {', '.join(article['keywords'])}")
+        main_logger.info(f"Results saved to {output_file}")
+        
+        # Generate summary by location
+        location_counts = {loc: len(articles) for loc, articles in results.items()}
+        for location, count in location_counts.items():
+            main_logger.info(f"Location '{location}': {count} articles")
+        
+        # Print summary to console for user feedback
+        print(f"\nScraper completed successfully:")
+        print(f"- Total articles: {total_articles}")
+        print(f"- Output saved to: {output_file}")
+        print(f"- Check logs for details: logs/scrapers.log")
+        
+        return output_file
+        
+    except Exception as e:
+        main_logger.exception(f"Error saving results: {str(e)}")
+        print(f"Error saving results: {str(e)}")
+        return None
 
 if __name__ == "__main__":
     main() 

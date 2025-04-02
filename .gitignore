@@ -35,8 +35,13 @@ ENV/
 .env
 .env.*
 output/
-*.log
 test_data/
+
+# Logs
+logs/*
+!logs/.gitkeep
+*.log
+*.log.*
 analyzer.log
 
 # Test files with API keys
