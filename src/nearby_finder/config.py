@@ -22,13 +22,7 @@ TARGET_BUSINESS_TYPES = [
     # Luxury goods
     "clothing_store",
     "shopping_mall",
-    "store",
-    
-    # Sports memorabilia
-    "store",
-    
-    # Vape/smoke shops
-    "store"
+    "store",  # Used for both luxury goods and sports memorabilia
 ]
 
 # Keywords for narrowing down general store results
@@ -49,15 +43,8 @@ SPORTS_MEMORABILIA_KEYWORDS = [
     "team"
 ]
 
-VAPE_SMOKE_KEYWORDS = [
-    "vape",
-    "smoke",
-    "tobacco",
-    "cigar",
-    "cigarette",
-    "e-cig",
-    "cbd"
-]
+# Remove vape/smoke shops from search
+VAPE_SMOKE_KEYWORDS = []
 
 # Output configuration
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "output", "nearby")

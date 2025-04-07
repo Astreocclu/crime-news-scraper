@@ -240,6 +240,31 @@ cp src/analyzer/analyzer.py src/analyzer/test_analyzer.py
 # (This is done by the LLM to ensure clean integration)
 ```
 
+### Comprehensive Testing System
+
+The project also includes a formal testing framework in the `tests/` directory:
+
+1. **Unit Tests**: Test individual components in isolation
+   - Scraper modules
+   - Utility functions
+   - Parser functions
+
+2. **Integration Tests**: Verify components work together
+   - Scraper pipelines
+   - Combined scrapers via the unified scraper
+   - Data storage processes
+
+3. **Mock Tests**: Test without making real web requests
+   - Use fixture data
+   - Mock API responses
+
+To run the test suite:
+```bash
+pytest tests/
+```
+
+See `tests/README.md` for detailed information about the testing system and guidelines for adding new tests.
+
 ## Testing
 
 - Test files are located in the `tests/`

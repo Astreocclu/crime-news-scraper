@@ -1,0 +1,3 @@
+# HTML Fixtures
+
+This directory contains HTML fixture files for testing the scrapers without making real web requests.

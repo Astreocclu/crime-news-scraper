@@ -6,6 +6,11 @@ import csv
 from datetime import datetime
 from typing import Dict, List
 from .jsa.scraper import JSAScraper
+from .wfaa.scraper import WFAAScraper
+from .reviewjournal.scraper import ReviewJournalScraper
+from .eightnews.scraper import EightNewsScraper
+from .nevadacurrent.scraper import NevadaCurrentScraper
+from .newsapi.scraper import NewsAPIScraper
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +19,12 @@ class UnifiedScraper:
     
     def __init__(self):
         self.scrapers = {
-            "jsa": JSAScraper()
+            "jsa": JSAScraper(),
+            "wfaa": WFAAScraper(),
+            "reviewjournal": ReviewJournalScraper(),
+            "eightnews": EightNewsScraper(),
+            "nevadacurrent": NevadaCurrentScraper(),
+            "newsapi": NewsAPIScraper()
         }
     
     def scrape_all(self, deep_check: bool = True, max_deep_check: int = 20) -> Dict[str, Dict[str, List[Dict]]]:

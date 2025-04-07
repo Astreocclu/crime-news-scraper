@@ -1,0 +1,8 @@
+# Fixtures directory
+
+This directory contains test fixtures for the testing system, including:
+- Sample HTML responses
+- Mock API responses
+- Expected output formats
+
+Do not delete this directory.
