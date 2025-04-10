@@ -11,6 +11,7 @@ from .reviewjournal.scraper import ReviewJournalScraper
 from .eightnews.scraper import EightNewsScraper
 from .nevadacurrent.scraper import NevadaCurrentScraper
 from .newsapi.scraper import NewsAPIScraper
+from ..database import get_db_connection
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +60,75 @@ class UnifiedScraper:
         return results
     
     def _save_results(self, results: Dict[str, Dict[str, List[Dict]]]):
-        """Save results to CSV files."""
-        # Create output directory if it doesn't exist
+        """Save results to the SQLite database."""
+        # Create output directory if it doesn't exist (for logs/other files)
         os.makedirs('output', exist_ok=True)
         
+        # Generate timestamp for records
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Track number of articles saved for logging
+        articles_saved = 0
+        
+        try:
+            with get_db_connection() as conn:
+                cursor = conn.cursor()
+                
+                for scraper_name, location_articles in results.items():
+                    if not location_articles:
+                        continue
+                    
+                    for location, articles in location_articles.items():
+                        for article in articles:
+                            # Convert boolean flags to integers for SQLite
+                            is_theft_related = 1 if article['is_theft_related'] else 0
+                            is_business_related = 1 if article['is_business_related'] else 0
+                            
+                            # Prepare article data for insertion
+                            article_data = (
+                                scraper_name,
+                                location,
+                                article['title'],
+                                article['date'],  # Should be in ISO format YYYY-MM-DD
+                                article['url'],
+                                article['excerpt'],
+                                article['source'],
+                                ','.join(article['keywords']),
+                                is_theft_related,
+                                is_business_related,
+                                article.get('store_type', ''),
+                                article.get('business_name', ''),
+                                article.get('detailed_location', ''),
+                                timestamp
+                            )
+                            
+                            # SQL statement with OR IGNORE to handle duplicates based on URL
+                            sql = '''
+                            INSERT OR IGNORE INTO articles 
+                            (scraper_name, location, title, article_date, url, excerpt, 
+                             source, keywords, is_theft_related, is_business_related,
+                             store_type, business_name, detailed_location, scraped_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            '''
+                            
+                            cursor.execute(sql, article_data)
+                            articles_saved += 1
+                
+                # Commit all insertions at once
+                conn.commit()
+                
+            logger.info(f"Saved {articles_saved} articles to database")
+            
+            # Also save to CSV for backward compatibility - can be removed later
+            self._save_results_to_csv(results)
+            
+        except Exception as e:
+            logger.error(f"Error saving to database: {e}")
+            # Fall back to CSV in case of database error
+            self._save_results_to_csv(results)
+            
+    def _save_results_to_csv(self, results: Dict[str, Dict[str, List[Dict]]]):
+        """Legacy method to save results to CSV files."""
         # Generate timestamp for filenames
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
@@ -100,7 +166,7 @@ class UnifiedScraper:
                         }
                         writer.writerow(row)
             
-            logger.info(f"Results saved to {output_file}")
+            logger.info(f"Results also saved to CSV: {output_file}")
 
 def main():
     """Main function to run the unified scraper"""

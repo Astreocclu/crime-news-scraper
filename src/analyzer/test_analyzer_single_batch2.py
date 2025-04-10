@@ -5,11 +5,13 @@ import os
 import pandas as pd
 from datetime import datetime
 import anthropic
+from anthropic import Anthropic  # Explicit import of the Anthropic class
 import json
 import re
 import sys
 import requests
 from urllib.parse import quote_plus
+from ..database import get_db_connection
 
 # Configure logging to both file and console
 logging.basicConfig(
@@ -932,94 +934,165 @@ Key Patterns:"""
 
         return summary
 
-    def process_single_batch(self, input_file):
-        """Process a single batch of articles."""
+    def process_single_batch(self, input_file=None, batch_size=10):
+        """
+        Process a single batch of articles.
+        
+        Parameters:
+        -----------
+        input_file : str, optional
+            Path to input CSV file. If not provided, articles are fetched from the database.
+        batch_size : int, optional
+            Number of articles to process in one batch. Defaults to 10.
+        """
         try:
-            # Read the input CSV file
-            df = pd.read_csv(input_file)
-            logger.info(f"Found {len(df)} articles in {input_file}")
-
-            # Process articles in smaller batches
+            # Set batch size
+            self.batch_size = batch_size
+            
+            # Process articles - either from CSV or database
+            if input_file:
+                # Legacy CSV mode - read from CSV file
+                df = pd.read_csv(input_file)
+                logger.info(f"Found {len(df)} articles in {input_file}")
+                articles_to_process = df.to_dict('records')
+            else:
+                # New mode - read from database using analyzer module
+                try:
+                    # Import locally to avoid circular imports
+                    from .analyzer import get_unanalyzed_articles
+                    
+                    with get_db_connection() as conn:
+                        articles_to_process = get_unanalyzed_articles(conn, limit=self.batch_size)
+                        
+                        if not articles_to_process:
+                            logger.info("No unanalyzed articles found in the database")
+                            return True
+                except Exception as db_err:
+                    logger.error(f"Database error: {db_err}")
+                    return False
+            
+            # Process articles in the batch
             batch_results = []
-            num_batches = 2  # Process 2 batches
-            self.batch_size = 5  # Batch size of 5 articles
+            article_analyses = []  # Store full analysis results for database insertion
             
-            for batch_num in range(num_batches):
-                start_idx = batch_num * self.batch_size
-                end_idx = start_idx + self.batch_size
-                batch_df = df.iloc[start_idx:end_idx].copy()
-                
-                if batch_df.empty:
-                    logger.info(f"No more articles to process in batch {batch_num + 1}")
-                    break
-                
-                logger.info(f"\nProcessing batch {batch_num + 1} ({len(batch_df)} articles)")
-                
-                for idx, article in batch_df.iterrows():
+            logger.info(f"\nProcessing batch of {len(articles_to_process)} articles")
+            
+            for idx, article in enumerate(articles_to_process):
+                try:
+                    logger.info(f"\nAnalyzing article {idx + 1}: {article['title']}")
+                    logger.info(f"Location: {article['location']}")
+                    logger.info(f"URL: {article['url']}")
+                    
+                    # Create the analysis prompt
+                    prompt = self._create_analysis_prompt(article)
+                    
+                    # Get analysis from Claude with timeout
                     try:
-                        logger.info(f"\nAnalyzing article {idx + 1}: {article['title']}")
-                        logger.info(f"Location: {article['location']}")
-                        logger.info(f"URL: {article['url']}")
-                        
-                        # Create the analysis prompt
-                        prompt = self._create_analysis_prompt(article)
-                        
-                        # Get analysis from Claude with timeout
-                        try:
-                            response = self.client.messages.create(
-                                model="claude-3-7-sonnet-20250219",
-                                max_tokens=self.max_tokens,
-                                temperature=self.temperature,
-                                messages=[{"role": "user", "content": prompt}],
-                                timeout=30  # 30 second timeout
-                            )
-                        except Exception as e:
-                            logger.error(f"API call failed for article {idx + 1}: {str(e)}")
-                            continue
-                        
-                        # Extract and process the analysis
-                        analysis = self._extract_analysis(response.content[0].text)
-                        if analysis:
-                            # Enhance business information
-                            logger.info(f"Enhancing business information for article {idx + 1}")
-                            enhanced_analysis = self._enhance_business_info(analysis)
-                            
-                            # Add fun analysis elements
-                            self._add_fun_analysis_elements(enhanced_analysis)
-                            
-                            # Create article summary
-                            summary = self._create_article_summary(article, enhanced_analysis)
-                            batch_results.append(summary)
-                            logger.info(f"Analysis completed successfully")
-                            logger.info(f"Analysis results: {json.dumps(enhanced_analysis, indent=2)}")
-                        else:
-                            logger.warning(f"Failed to extract analysis for article {idx + 1}")
-                            
+                        response = self.client.messages.create(
+                            model="claude-3-7-sonnet-20250219",
+                            max_tokens=self.max_tokens,
+                            temperature=self.temperature,
+                            messages=[{"role": "user", "content": prompt}],
+                            timeout=30  # 30 second timeout
+                        )
                     except Exception as e:
-                        logger.error(f"Error processing article {idx + 1}: {str(e)}")
+                        logger.error(f"API call failed for article {idx + 1}: {str(e)}")
                         continue
-                
-                logger.info(f"\nCompleted batch {batch_num + 1}")
-                
-                # Save intermediate results after each batch
-                if batch_results:
-                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    output_file = os.path.join(self.output_dir, f'analysis_results_{timestamp}.csv')
-                    results_df = pd.DataFrame(batch_results)
-                    results_df.to_csv(output_file, index=False)
-                    logger.info(f"\nIntermediate results saved to {output_file}")
+                    
+                    # Extract and process the analysis
+                    analysis = self._extract_analysis(response.content[0].text)
+                    if analysis:
+                        # Enhance business information
+                        logger.info(f"Enhancing business information for article {idx + 1}")
+                        enhanced_analysis = self._enhance_business_info(analysis)
+                        
+                        # Add fun analysis elements
+                        self._add_fun_analysis_elements(enhanced_analysis)
+                        
+                        # Add article ID and timestamp for database storage
+                        enhanced_analysis['article_id'] = article.get('id')
+                        enhanced_analysis['analyzed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        
+                        # Create article summary
+                        summary = self._create_article_summary(article, enhanced_analysis)
+                        batch_results.append(summary)
+                        article_analyses.append(enhanced_analysis)  # Store for database
+                        
+                        logger.info(f"Analysis completed successfully")
+                        logger.info(f"Analysis results: {json.dumps(enhanced_analysis, indent=2)}")
+                    else:
+                        logger.warning(f"Failed to extract analysis for article {idx + 1}")
+                        
+                except Exception as e:
+                    logger.error(f"Error processing article {idx + 1}: {str(e)}")
+                    continue
             
+            logger.info(f"\nCompleted batch processing")
+            
+            # Save results to database
+            self._save_results_to_database(article_analyses)
+            
+            # Also save to CSV for backward compatibility
             if batch_results:
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                os.makedirs(self.output_dir, exist_ok=True)
+                
+                # Save summaries
+                summary_file = os.path.join(self.output_dir, f'analysis_summary_{timestamp}.txt')
+                with open(summary_file, 'w', encoding='utf-8') as f:
+                    f.write("\n\n".join(batch_results))
+                logger.info(f"\nAnalysis summaries saved to {summary_file}")
+                
+                # Save raw analysis data
+                json_file = os.path.join(self.output_dir, f'analyzed_leads_single_batch_{timestamp}.json')
+                with open(json_file, 'w', encoding='utf-8') as f:
+                    json.dump(article_analyses, f, indent=2)
+                logger.info(f"Raw analysis data saved to {json_file}")
+                
+                # Save CSV version
+                csv_file = os.path.join(self.output_dir, f'analyzed_leads_single_batch_{timestamp}.csv')
+                pd.DataFrame(article_analyses).to_csv(csv_file, index=False)
+                logger.info(f"Analysis data saved to CSV: {csv_file}")
+                
                 # Generate final summary
                 summary = self._generate_summary(batch_results)
                 logger.info("\nAnalysis Summary:")
-                logger.info(json.dumps(summary, indent=2))
+                logger.info(summary)
+                
+                # Save the summary to a file
+                summary_output_file = os.path.join(self.output_dir, f'analysis_summary_{timestamp}.txt')
+                with open(summary_output_file, 'w', encoding='utf-8') as f:
+                    f.write(summary)
+                logger.info(f"Analysis summary saved to {summary_output_file}")
                 
             return True
             
         except Exception as e:
             logger.error(f"Error processing batch: {str(e)}")
             return False
+            
+    def _save_results_to_database(self, analyses):
+        """Save analysis results to the SQLite database."""
+        if not analyses:
+            logger.info("No analysis results to save to database")
+            return
+            
+        try:
+            # Import locally to avoid circular imports
+            from .analyzer import save_analysis_results
+            
+            with get_db_connection() as conn:
+                # Use the refactored function to save results
+                success = save_analysis_results(conn, analyses)
+                
+                if not success:
+                    logger.error("Failed to save analysis results to database")
+                
+        except Exception as e:
+            logger.error(f"Error saving analysis results to database: {e}")
+            # Log full traceback for debugging
+            import traceback
+            logger.error(traceback.format_exc())
 
 def main():
     """Main entry point for the analyzer."""

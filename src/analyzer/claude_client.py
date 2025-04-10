@@ -49,7 +49,7 @@ class ClaudeClient:
         api_key : Optional[str], optional
             The Anthropic API key. If not provided, it will be loaded from environment variables.
         """
-        self.client = anthropic.Client(api_key=api_key or get_api_key())
+        self.client = anthropic.Anthropic(api_key=api_key or get_api_key())
         
     @log_execution_time(logger, "Claude API: ")
     def analyze(self, prompt: str, max_tokens: int = 4000, temperature: float = 0.7, 
@@ -93,7 +93,7 @@ class ClaudeClient:
                 # Get Claude's response
                 start_time = time.time()
                 response = self.client.messages.create(
-                    model="claude-3-sonnet-20240229",
+                    model="claude-3-7-sonnet-20250219",
                     max_tokens=max_tokens,
                     temperature=temperature,
                     messages=[

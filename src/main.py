@@ -8,12 +8,13 @@ This script orchestrates the entire workflow:
 3. Generates analysis reports and summaries
 
 Usage:
-    python -m src.main [--no-scrape] [--no-analyze] [--input-file FILE]
+    python -m src.main [--no-scrape] [--no-analyze] [--input-file FILE] [--batch-size SIZE]
 
 Options:
     --no-scrape     Skip the scraping step and use existing data
     --no-analyze    Skip the analysis step
     --input-file    Specify an input CSV file for analysis (ignores scraping)
+    --batch-size    Number of articles to process in one batch (default: 10)
 """
 
 import argparse
@@ -25,8 +26,9 @@ from datetime import datetime
 from typing import Optional
 from dotenv import load_dotenv
 
-from scrapers.unified import UnifiedScraper
-from analyzer.claude_client import ClaudeClient
+from src.scrapers.unified import UnifiedScraper
+from src.analyzer.claude_client import ClaudeClient
+from src.database import initialize_database
 
 # Configure logging
 logging.basicConfig(
@@ -45,6 +47,8 @@ def parse_arguments():
     parser.add_argument('--no-scrape', action='store_true', help='Skip the scraping step')
     parser.add_argument('--no-analyze', action='store_true', help='Skip the analysis step')
     parser.add_argument('--input-file', type=str, help='Input CSV file for analysis')
+    parser.add_argument('--batch-size', type=int, default=10, help='Number of articles to process in one batch')
+    parser.add_argument('--use-database', action='store_true', help='Use database for storage instead of CSV files')
     return parser.parse_args()
 
 def run_scraper() -> Optional[str]:
@@ -77,16 +81,24 @@ def run_scraper() -> Optional[str]:
         logger.error(f"Error running scraper: {e}")
         return None
 
-def run_analyzer(input_file: str):
-    """Run the analyzer on the input file.
+def run_analyzer(input_file: Optional[str] = None, batch_size: int = 10, use_database: bool = False):
+    """
+    Run the analyzer on articles.
     
     Parameters:
     -----------
-    input_file : str
-        Path to the input CSV file
+    input_file : Optional[str]
+        Path to the input CSV file, or None to use database
+    batch_size : int
+        Number of articles to process in one batch
+    use_database : bool
+        Whether to use the database for reading articles
     """
     try:
-        logger.info(f"Starting analyzer with input file: {input_file}")
+        if input_file:
+            logger.info(f"Starting analyzer with input file: {input_file}")
+        else:
+            logger.info(f"Starting analyzer with database (batch size: {batch_size})")
         
         # Load API key from environment variable
         load_dotenv()
@@ -96,12 +108,15 @@ def run_analyzer(input_file: str):
             return
             
         # Import analyzer module dynamically to avoid circular imports
-        from analyzer.test_analyzer_single_batch2 import TestAnalyzerSingleBatch
+        from src.analyzer.test_analyzer_single_batch2 import TestAnalyzerSingleBatch
         
         # Initialize and run the analyzer
         # TestAnalyzerSingleBatch now loads API key from environment variables
         analyzer = TestAnalyzerSingleBatch()
-        success = analyzer.process_single_batch(input_file)
+        
+        # If using database, pass None as input_file
+        file_arg = None if use_database else input_file
+        success = analyzer.process_single_batch(file_arg, batch_size=batch_size)
         
         if success:
             logger.info("Analysis completed successfully")
@@ -123,25 +138,35 @@ def main():
         # Create output directory if it doesn't exist
         os.makedirs('output', exist_ok=True)
         
-        # Determine input file
+        # Initialize the database
+        initialize_database()
+        logger.info("Database initialized")
+        
+        # Determine if we're using CSV or database mode
+        use_database = args.use_database
+        
+        # Handle scraping step
         input_file = None
         if args.input_file:
             input_file = args.input_file
             logger.info(f"Using specified input file: {input_file}")
+            use_database = False  # Override to use CSV if input file is specified
         elif not args.no_scrape:
             logger.info("Running scraper to collect articles")
+            # If using database, we don't need the returned CSV file
             input_file = run_scraper()
-            if not input_file:
+            if not input_file and not use_database:
                 logger.error("Scraping failed, no input file available for analysis")
                 return
-        else:
-            logger.error("No input file specified and scraping is disabled")
+        elif not use_database:
+            logger.error("No input file specified and scraping is disabled (in CSV mode)")
             return
         
         # Run analyzer if not disabled
         if not args.no_analyze:
             logger.info("Running analyzer")
-            run_analyzer(input_file)
+            batch_size = args.batch_size
+            run_analyzer(input_file, batch_size, use_database)
         else:
             logger.info("Analysis step skipped")
         

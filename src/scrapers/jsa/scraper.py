@@ -23,8 +23,8 @@ from selenium.common.exceptions import TimeoutException
 from ..base import BaseScraper, Article
 from .config import JSA_CONFIG, MONITORED_LOCATIONS
 from .utils import detect_location, extract_keywords, is_business_related, standardize_date
-from src.utils.logger import get_logger
-from src.utils.exceptions import ScraperNetworkError, ScraperParsingError
+from ...utils.logger import get_logger
+from ...utils.exceptions import ScraperNetworkError, ScraperParsingError
 
 # Get a logger for this module
 logger = get_logger(__name__)
@@ -436,7 +436,7 @@ def main():
     """Run the JSA scraper directly"""
     import csv
     from datetime import datetime
-    from src.utils.logger import get_logger, log_execution_time, get_dated_log_filename
+    from ...utils.logger import get_logger, log_execution_time, get_dated_log_filename
     
     # Get a dedicated logger for the main function
     main_logger = get_logger("jsa_scraper_main")

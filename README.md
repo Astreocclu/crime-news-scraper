@@ -45,11 +45,17 @@ The project uses environment variables for sensitive configuration:
 
 1. Create a `.env` file in the project root with the following variables:
 ```
+# API Keys
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
 GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
+
+# Database Configuration
+DATABASE_PATH=crime_data.db  # Path to SQLite database file
 ```
 
 2. The application will automatically load these environment variables when started.
+
+> Note: A `.env.example` file is provided as a template. Copy it to `.env` and fill in your specific values.
 
 ### Analyzer Configuration
 - `batch_size`: Number of articles to process in each batch (default: 10)
@@ -70,12 +76,24 @@ The analyzer extracts key sales-focused data points specifically optimized for s
 
 ## Usage
 
-1. Run the scraper:
+1. Run the scraper with default settings (CSV storage):
 ```bash
 python src/main.py
 ```
 
-2. View the results in the `output` directory
+2. Run with SQLite database storage:
+```bash
+python src/main.py --use-database
+```
+
+3. Additional options:
+```bash
+python src/main.py --no-scrape --use-database  # Use database, skip scraping
+python src/main.py --batch-size 20             # Process 20 articles at once
+python src/main.py --input-file path/to/file.csv  # Use specific input file
+```
+
+4. View the results in the `output` directory or query the SQLite database (`crime_data.db`)
 
 ## Project Structure
 
@@ -93,6 +111,7 @@ python src/main.py
 │   │   ├── __init__.py
 │   │   ├── analyzer.py    # Main analyzer implementation
 │   │   └── claude_client.py # Claude API integration
+│   ├── database.py        # Database operations and schema
 │   └── nearby_finder/     # Nearby business finder module
 │       ├── __init__.py
 │       ├── finder.py      # Main nearby business finder implementation
@@ -105,28 +124,36 @@ python src/main.py
 │   ├── analyzed/        # Analyzed business data
 │   └── nearby/          # Nearby business data
 ├── test_data/           # Test data files
+├── crime_data.db        # SQLite database for articles and analysis results
 ├── requirements.txt     # Project dependencies
 └── .env                # Environment variables
 ```
 
 ## System Architecture
 
-The system follows a modular design with four main components:
+The system follows a modular design with five main components:
 
-1. **Unified Scraper**
+1. **Database Module**
+   - Centralizes data storage and retrieval using SQLite
+   - Maintains consistent schema for articles and analysis results
+   - Provides efficient data querying and storage capabilities
+   - Ensures data integrity through constraints like unique article URLs
+   - Handles all database connections and operations
+
+2. **Unified Scraper**
    - Acts as the main orchestrator for lead generation
    - Manages the execution of individual scraper modules
-   - Handles data aggregation and storage
+   - Stores articles in SQLite database or CSV files (backward compatibility)
    - Creates standardized lead source data
 
-2. **Modular Scrapers**
+3. **Modular Scrapers**
    - Each scraper module (JSA, DFW, etc.) targets specific news sources
    - Inherits from the base scraper class
    - Implements specific scraping logic to extract potential sales leads
-   - Outputs standardized CSV files of potential target businesses
+   - Outputs standardized data for storage in database or CSV files
 
-3. **Sales Intelligence Analyzer**
-   - Processes the generated CSV files to identify sales opportunities
+4. **Sales Intelligence Analyzer**
+   - Processes articles from database or CSV files to identify sales opportunities
    - Uses Claude AI to:
      - Identify and validate business locations
      - Enhance data with business names and addresses
@@ -134,8 +161,9 @@ The system follows a modular design with four main components:
      - Calculate business impact scores
      - Generate tailored security product recommendations
      - Prioritize leads based on multiple factors
+   - Stores analysis results in database for efficient querying
 
-4. **Nearby Business Finder**
+5. **Nearby Business Finder**
    - Uses Google Maps API to identify additional high-value targets near incident locations
    - Focuses on luxury goods stores, sports memorabilia shops, vape/smoke shops, and jewelry stores
    - Generates a dedicated spreadsheet with:
@@ -148,16 +176,19 @@ The system follows a modular design with four main components:
 
 1. **Source Monitoring**: The unified scraper continuously monitors news sources for jewelry crime incidents, focusing on the JSA (Jewelers Security Alliance) website initially
 2. **Lead Collection**: Modular scrapers extract relevant business theft incidents, particularly those involving forced entry or smash-and-grab crimes
-3. **Data Standardization**:
+3. **Data Storage and Standardization**:
    - Fetches theft incident details from news sources
    - Processes and standardizes the data for analysis
-   - Saves potential leads to CSV in the output directory
+   - Stores articles in SQLite database with unique constraints to prevent duplicates
+   - Optionally saves data to CSV files for backward compatibility
 4. **Lead Qualification**:
    - Uses Claude AI to validate leads and enrich business information
+   - Pulls unanalyzed articles from database for processing
    - Identifies precise business locations and contact information for security screen sales visits
    - Analyzes crime patterns and severity to determine security screen sales urgency
    - Calculates business impact scores to prioritize security screen outreach
    - Generates specific security screen product recommendations
+   - Stores analysis results in database for efficient querying and reporting
    - Creates prioritized lead reports for American Security Screens sales teams
 5. **High-Value Target Expansion**:
    - Identifies nearby luxury goods stores, sports memorabilia shops, vape/smoke shops, and jewelry businesses within configurable radius of incident locations
