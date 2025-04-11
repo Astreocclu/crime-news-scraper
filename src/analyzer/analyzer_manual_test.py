@@ -12,6 +12,7 @@ import sys
 import requests
 from urllib.parse import quote_plus
 from ..database import get_db_connection
+from ..utils.address_extractor import extract_address_from_article, normalize_address
 
 # Configure logging to both file and console
 logging.basicConfig(
@@ -24,14 +25,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class TestAnalyzerSingleBatch:
+class SingleBatchAnalyzer:
     """Test analyzer module for processing a single batch of crime articles."""
 
     def __init__(self):
         """Initialize the analyzer with API key and parameters."""
         # Import the get_api_key function from claude_client
         from .claude_client import get_api_key
-        
+
         self.api_key = get_api_key()  # This will load from .env and validate
         self.batch_size = 10
         self.max_tokens = 4000
@@ -50,50 +51,56 @@ class TestAnalyzerSingleBatch:
         except:
             return timestamp_str
 
-    def _enhance_business_info(self, analysis):
+    def _enhance_business_info(self, analysis, article=None):
         """
         Enhance business information by guessing business names and finding addresses.
         Uses web search and inference when direct information is not available.
-        
+
         Parameters:
         -----------
         analysis : dict
             The analysis dictionary from Claude
-            
+        article : dict, optional
+            The original article data, used for address extraction
+
         Returns:
         --------
         dict
             Updated analysis with enhanced business information
         """
+        # First try to extract address directly from the article if available
+        if article:
+            analysis = self._extract_address_from_article(article, analysis)
+
         # Skip if business name is already specified and not generic
-        if (analysis.get('businessName') and 
+        if (analysis.get('businessName') and
             analysis['businessName'] not in ['Not specified', 'Not mentioned', 'not specified in the excerpt']):
             return self._find_business_address(analysis)
-            
+
         # Extract location info for search
         location = analysis.get('detailedLocation', '')
         store_type = analysis.get('storeType', '')
-        
+
         # Skip if we don't have enough information
         if not location or not store_type or store_type in ['Not specified', 'Not mentioned']:
             return analysis
-            
+
         # Construct search query
         query = f"{store_type} in {location}"
         logger.info(f"Searching for business information with query: {query}")
-        
+
         try:
             # Use Claude to infer the likely business name and address
             prompt = f"""
             Based on the following information about a jewelry crime incident, please infer the most likely jewelry business that was targeted.
             Then find its full address. Provide your best inference, but clearly indicate when you are making an educated guess.
-            
+
             Crime location: {location}
             Store type: {store_type}
             Crime type: {analysis.get('crimeType', '')}
             Date of incident: {analysis.get('incidentDate', '')}
             Other relevant details: {analysis.get('summary', '')}
-            
+
             Format your response as a JSON object with these fields:
             {{
                 "inferredBusinessName": "the most likely business name",
@@ -103,7 +110,7 @@ class TestAnalyzerSingleBatch:
                 "reasoning": "brief explanation of your reasoning"
             }}
             """
-            
+
             response = self.client.messages.create(
                 model="claude-3-7-sonnet-20250219",
                 max_tokens=1000,
@@ -111,7 +118,7 @@ class TestAnalyzerSingleBatch:
                 messages=[{"role": "user", "content": prompt}],
                 timeout=30
             )
-            
+
             # Parse the response
             result_text = response.content[0].text
             # Extract JSON from the response
@@ -122,34 +129,35 @@ class TestAnalyzerSingleBatch:
                 json_match = re.search(r'{.*}', result_text, re.DOTALL)
                 if json_match:
                     result_text = json_match.group(0)
-                    
+
             try:
                 business_info = json.loads(result_text)
-                
+
                 # Update the analysis with the enhanced information
                 if business_info.get('inferredBusinessName'):
                     analysis['businessName'] = business_info['inferredBusinessName']
                     analysis['businessNameConfidence'] = business_info.get('confidence', 'low')
-                    
+
                 if business_info.get('inferredAddress'):
                     # Normalize address format
                     raw_address = business_info['inferredAddress']
                     normalized_address = self._normalize_address(raw_address)
                     analysis['exactAddress'] = normalized_address
                     analysis['addressConfidence'] = business_info.get('addressConfidence', 'low')
-                    
+                    analysis['addressSource'] = 'inferred_from_analysis'
+
                 analysis['businessInferenceReasoning'] = business_info.get('reasoning', '')
-                
+
                 logger.info(f"Enhanced business info: {business_info}")
-                
+
             except json.JSONDecodeError:
                 logger.warning(f"Could not parse business info response: {result_text}")
-                
+
         except Exception as e:
             logger.error(f"Error enhancing business information: {str(e)}")
-            
+
         return analysis
-        
+
     def _add_fun_analysis_elements(self, analysis):
         """Add engaging sales-oriented elements to the analysis for business development"""
         crime_type = str(analysis.get('crimeType', '')).lower()
@@ -157,7 +165,7 @@ class TestAnalyzerSingleBatch:
         entry_method = str(analysis.get('entryMethod', '')).lower()
         value = str(analysis.get('estimatedValue', ''))
         num_suspects = str(analysis.get('numSuspects', ''))
-        
+
         # Add attention-grabbing headline for sales pitches
         if 'smash' in method or 'smash' in entry_method:
             analysis['salesPitchHeadline'] = "PREVENT THE NEXT HEIST: Smash & Grab Protection That Works"
@@ -171,7 +179,7 @@ class TestAnalyzerSingleBatch:
             analysis['salesPitchHeadline'] = "AFTER-HOURS PROTECTION: Next-Gen Security Solutions for Jewelry Retailers"
         else:
             analysis['salesPitchHeadline'] = "PROTECT YOUR INVESTMENT: Comprehensive Security for Jewelry Businesses"
-        
+
         # Add comparable incident for storytelling
         if 'smash' in method or 'smash' in entry_method:
             analysis['comparableIncident'] = "Ocean's Eleven-style coordinated attack - increasingly common in upscale retail"
@@ -187,7 +195,7 @@ class TestAnalyzerSingleBatch:
             analysis['comparableIncident'] = "Quick opportunistic theft - the most common and preventable retail crime pattern"
         else:
             analysis['comparableIncident'] = "Similar patterns emerging in retail jewelry crime statistics nationwide"
-        
+
         # Add risk assessment for sales conversations
         if 'armed' in method or 'violent' in crime_type or 'kidnapping' in crime_type:
             analysis['riskAssessment'] = "SEVERE: High-risk operation involving weapons and coordinated criminals"
@@ -199,11 +207,11 @@ class TestAnalyzerSingleBatch:
             analysis['riskAssessment'] = "BASIC: Opportunistic crime that proper protocols can prevent"
         else:
             analysis['riskAssessment'] = "UNDETERMINED: Custom risk assessment recommended"
-        
+
         # Calculate potential business impact
         impact_level = 1
         impact_description = []
-        
+
         # Base impact on crime characteristics
         if 'armed' in method or 'armed' in crime_type:
             impact_level += 4
@@ -214,7 +222,7 @@ class TestAnalyzerSingleBatch:
         if 'kidnapping' in crime_type:
             impact_level += 5
             impact_description.append("Severe personnel safety risks")
-        
+
         # Add value-based impact
         try:
             if '$' in value:
@@ -224,7 +232,7 @@ class TestAnalyzerSingleBatch:
                     value_num = multiplier * 1000000
                 else:
                     value_num = float(value_str)
-                
+
                 if value_num > 1000000:
                     impact_level += 5
                     impact_description.append("Catastrophic inventory loss")
@@ -239,15 +247,15 @@ class TestAnalyzerSingleBatch:
                     impact_description.append("Notable inventory loss")
         except:
             pass
-            
+
         # Format impact level as 1-10
         impact_level = min(10, impact_level)
         impact_level = max(1, impact_level)
-        
+
         # Create business impact assessment
         analysis['businessImpactScore'] = impact_level
         analysis['businessImpactAreas'] = ", ".join(impact_description) if impact_description else "Undetermined"
-        
+
         # Add practical security recommendations for sales conversations
         if 'smash' in method or 'smash' in entry_method:
             analysis['securityRecommendation'] = "Impact-resistant showcases, smash-sensor alarms, and rapid-response protocols"
@@ -261,7 +269,7 @@ class TestAnalyzerSingleBatch:
             analysis['securityRecommendation'] = "Enhanced after-hours security, motion detection, and vault upgrades"
         else:
             analysis['securityRecommendation'] = "Comprehensive security assessment and tailored prevention strategies"
-        
+
         # Add interesting fact for engagement
         if 'smash' in method or 'smash' in entry_method:
             analysis['interestingFactForSales'] = "Smash and grab crimes typically last less than 60 seconds, but can cost millions"
@@ -275,98 +283,75 @@ class TestAnalyzerSingleBatch:
             analysis['interestingFactForSales'] = "Most jewelry burglaries occur within 2 hours of closing or opening time"
         else:
             analysis['interestingFactForSales'] = "Jewelry crimes are among the most profitable and targeted retail crimes nationwide"
-            
+
         return analysis
-    
+
+
+
+    def _extract_address_from_article(self, article, analysis):
+        """
+        Extract a potential street address from an article and add it to the analysis.
+
+        Parameters:
+        -----------
+        article : dict
+            The article data
+        analysis : dict
+            The analysis data to update
+
+        Returns:
+        --------
+        dict
+            The updated analysis data
+        """
+        # Skip if we already have an exact address
+        if analysis.get('exactAddress'):
+            return analysis
+
+        # Try to extract address from article
+        extracted_address = extract_address_from_article(article)
+        if extracted_address:
+            # Normalize the address
+            normalized_address = normalize_address(extracted_address)
+            analysis['exactAddress'] = normalized_address
+            analysis['addressSource'] = 'extracted_from_article'
+            analysis['extracted_incident_address'] = normalized_address
+            analysis['addressConfidence'] = 'medium'
+            logger.info(f"Extracted address from article: {normalized_address}")
+
+        return analysis
+
     def _normalize_address(self, address):
         """
-        Normalize address format for geocoding readiness:
-        - Handle common abbreviations
-        - Remove any extra notations or parentheses
-        - Ensure consistent format
-        - Format: [Street Number] [Street Name], [City], [State] [ZIP]
-        
+        Normalize address format for geocoding readiness.
+        Uses the imported normalize_address function from address_extractor.
+
         Parameters:
         -----------
         address : str
             Raw address string to normalize
-            
+
         Returns:
         --------
         str
             Normalized address string
         """
-        if not address:
-            return ""
-            
-        # Remove any confidence indicators or other parenthetical notes
-        address = re.sub(r'\s*\([^)]*\)', '', address)
-        
-        # Dictionary of abbreviation replacements
-        abbr_map = {
-            # Street types
-            r'\bSt\b': 'Street',
-            r'\bAve\b': 'Avenue',
-            r'\bBlvd\b': 'Boulevard',
-            r'\bRd\b': 'Road',
-            r'\bDr\b': 'Drive',
-            r'\bLn\b': 'Lane',
-            r'\bPkwy\b': 'Parkway',
-            r'\bHwy\b': 'Highway',
-            r'\bCt\b': 'Court',
-            r'\bCir\b': 'Circle',
-            r'\bPl\b': 'Place',
-            r'\bTer\b': 'Terrace',
-            
-            # Directionals
-            r'\bN\.?\b': 'North',
-            r'\bS\.?\b': 'South',
-            r'\bE\.?\b': 'East',
-            r'\bW\.?\b': 'West',
-            r'\bNE\b': 'Northeast',
-            r'\bNW\b': 'Northwest',
-            r'\bSE\b': 'Southeast',
-            r'\bSW\b': 'Southwest',
-            
-            # States - keep as two-letter codes for geocoding APIs
-            # Most geocoding APIs prefer 2-letter state codes
-            r'\bCalifornia\b': 'CA',
-            r'\bTexas\b': 'TX',
-            r'\bNevada\b': 'NV',
-            r'\bArizona\b': 'AZ',
-            r'\bGeorgia\b': 'GA',
-        }
-        
-        # Apply abbreviation standardization
-        normalized = address
-        for abbr, full in abbr_map.items():
-            normalized = re.sub(abbr, full, normalized)
-        
-        # Ensure consistent comma separation
-        normalized = re.sub(r'\s*,\s*', ', ', normalized)
-        
-        # Ensure consistent spacing
-        normalized = re.sub(r'\s+', ' ', normalized)
-        
-        # Clean up any trailing punctuation
-        normalized = normalized.strip('.,; ')
-        
-        return normalized
-        
+        return normalize_address(address)
+
     def _find_business_address(self, analysis):
         """Find the exact address for a known business name"""
         # Only skip if we don't have a business name AND don't have location info
         if (not analysis.get('businessName') or analysis['businessName'] in ['Not specified', 'Not mentioned']) and not analysis.get('detailedLocation'):
             return analysis
-            
+
         business_name = analysis.get('businessName', '')
         location = analysis.get('detailedLocation', '')
         store_type = analysis.get('storeType', '')
-        
+
         # Clean up inferred confidence notation if present
         if business_name and '(inferred:' in business_name:
             business_name = business_name.split('(inferred:')[0].strip()
-        
+
         # Construct an appropriate query based on available information
         if business_name and business_name not in ['Not specified', 'Not mentioned']:
             query = f"{business_name} jewelry {location} address"
@@ -376,17 +361,17 @@ class TestAnalyzerSingleBatch:
             query = f"jewelry store in {location} address"
         else:
             return analysis  # Not enough info to search
-            
+
         logger.info(f"Searching for address with query: {query}")
-        
+
         try:
             # Use Claude to find the address
             prompt = f"""
             Please find the full address of this jewelry business:
-            
+
             Business name: {business_name}
             Location area: {location}
-            
+
             Format your response as a JSON object with these fields:
             {{
                 "businessName": "verified business name",
@@ -395,7 +380,7 @@ class TestAnalyzerSingleBatch:
                 "source": "where you found this information"
             }}
             """
-            
+
             response = self.client.messages.create(
                 model="claude-3-7-sonnet-20250219",
                 max_tokens=1000,
@@ -403,7 +388,7 @@ class TestAnalyzerSingleBatch:
                 messages=[{"role": "user", "content": prompt}],
                 timeout=30
             )
-            
+
             # Parse the response
             result_text = response.content[0].text
             # Extract JSON from the response
@@ -414,10 +399,10 @@ class TestAnalyzerSingleBatch:
                 json_match = re.search(r'{.*}', result_text, re.DOTALL)
                 if json_match:
                     result_text = json_match.group(0)
-                    
+
             try:
                 address_info = json.loads(result_text)
-                
+
                 # Update the analysis with the address information
                 if address_info.get('address'):
                     # Normalize address format
@@ -425,21 +410,21 @@ class TestAnalyzerSingleBatch:
                     normalized_address = self._normalize_address(raw_address)
                     analysis['exactAddress'] = normalized_address
                     analysis['addressConfidence'] = address_info.get('confidence', 'low')
-                    
+
                 if address_info.get('businessName') and address_info.get('businessName') != business_name:
                     analysis['businessName'] = address_info['businessName']
                     analysis['businessNameConfidence'] = 'high'  # Verified business name gets high confidence
-                    
+
                 analysis['addressSource'] = address_info.get('source', '')
-                
+
                 logger.info(f"Found address info: {address_info}")
-                
+
             except json.JSONDecodeError:
                 logger.warning(f"Could not parse address info response: {result_text}")
-                
+
         except Exception as e:
             logger.error(f"Error finding business address: {str(e)}")
-            
+
         return analysis
 
     def _parse_date(self, date_str):
@@ -447,7 +432,7 @@ class TestAnalyzerSingleBatch:
         # Handle None, NaN, and empty values
         if pd.isna(date_str) or date_str == '':
             return None
-            
+
         # Convert to string if it's a number
         if isinstance(date_str, (int, float)):
             try:
@@ -455,7 +440,7 @@ class TestAnalyzerSingleBatch:
                 return datetime.fromtimestamp(float(date_str)).strftime('%Y-%m-%d')
             except:
                 return None
-            
+
         # Convert to string and check for special values
         date_str = str(date_str).strip()
         if date_str.lower() in ['not specified', 'unknown', '', 'none']:
@@ -484,11 +469,11 @@ class TestAnalyzerSingleBatch:
             if match:
                 try:
                     d = match.groupdict()
-                    
+
                     # Convert month names to numbers
                     if 'month' in d and d['month'].lower() in month_map:
                         d['month'] = month_map[d['month'].lower()]
-                    
+
                     # Handle 2-digit years
                     if 'year' in d and len(d['year']) == 2:
                         year = int(d['year'])
@@ -497,7 +482,7 @@ class TestAnalyzerSingleBatch:
                         else:  # Years 50-99 are 1950-1999
                             year += 1900
                         d['year'] = str(year)
-                    
+
                     # Create ISO format date
                     date_str = f"{d['year']}-{int(d['month']):02d}-{int(d['day']):02d}"
                     return datetime.strptime(date_str, '%Y-%m-%d').strftime('%Y-%m-%d')
@@ -528,9 +513,9 @@ class TestAnalyzerSingleBatch:
         """Infer incident date from article text and publication date."""
         if not article_text:
             return None
-            
+
         article_text = str(article_text).lower()
-        
+
         # First try to find explicit date mentions
         date_patterns = [
             r'(?:on|during|at)\s+(?:the\s+)?(?:night|morning|afternoon|evening|weekend)\s+of\s+(\d{1,2}/\d{1,2}/\d{2,4})',
@@ -573,12 +558,12 @@ class TestAnalyzerSingleBatch:
         if article_date:
             try:
                 article_dt = datetime.strptime(article_date, '%Y-%m-%d')
-                
+
                 # Check for relative time indicators
                 for indicator, days in relative_indicators.items():
                     if indicator in article_text:
                         return (article_dt - pd.Timedelta(days=days)).strftime('%Y-%m-%d')
-                        
+
                 # If the article mentions specific days of the week
                 days_of_week = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
                 for i, day in enumerate(days_of_week):
@@ -626,7 +611,7 @@ class TestAnalyzerSingleBatch:
                 r'(\d{1,2}/\d{1,2}/\d{2,4})',  # Fallback for any date in MM/DD/YYYY format
                 r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})',  # Fallback for any date with month name
             ]
-            
+
             for pattern in date_patterns:
                 match = re.search(pattern, excerpt, re.IGNORECASE)
                 if match:
@@ -709,7 +694,7 @@ class TestAnalyzerSingleBatch:
             # Extract the text content from TextBlock
             text_content = response_content[0].text if isinstance(response_content, list) else response_content
             logger.info(f"Response text: {text_content}")
-            
+
             # Find the JSON object in the text using a more robust method
             json_matches = re.findall(r'\{[^{}]*\}', text_content)
             if json_matches:
@@ -721,7 +706,7 @@ class TestAnalyzerSingleBatch:
                         return result
                     except json.JSONDecodeError:
                         continue
-                        
+
             logger.error(f"No valid JSON object found in response: {text_content}")
         except Exception as e:
             logger.error(f"Error parsing JSON: {e}")
@@ -734,7 +719,7 @@ class TestAnalyzerSingleBatch:
         incident_date = self._parse_date(analysis.get('incidentDate', ''))
         article_date = self._parse_date(article.get('date', ''))
         scraping_date = self._format_timestamp(article.get('scraping_timestamp', ''))
-        
+
         # Build the summary with all available information
         summary = f"""
 Article: {article.get('title', '')}
@@ -780,31 +765,31 @@ Interesting Fact: {analysis.get('interestingFactForSales', 'Not available')}
             # Extract info from each summary string
             lines = result.strip().split('\n')
             article_data = {}
-            
+
             for line in lines:
                 if ': ' in line:
                     key, value = line.split(': ', 1)
                     article_data[key] = value
-            
+
             parsed_results.append(article_data)
-            
+
         # Create DataFrame from parsed results
         df = pd.DataFrame(parsed_results)
-        
+
         # Check if the DataFrame is valid
         if df.empty:
             logger.warning("No valid results to summarize")
             return "No valid results to summarize"
-        
+
         # Count crime types
         crime_types = df['Crime Type'].value_counts() if 'Crime Type' in df.columns else pd.Series()
-        
+
         # Count methods
         methods = df['Method'].value_counts() if 'Method' in df.columns else pd.Series()
-        
+
         # Count targets
         targets = df['Target'].value_counts() if 'Target' in df.columns else pd.Series()
-        
+
         # Calculate total estimated value (converting string values to numbers where possible)
         def extract_value(value):
             if pd.isna(value) or value == '' or value == 'Not specified' or value == 'Not mentioned':
@@ -837,18 +822,18 @@ Interesting Fact: {analysis.get('interestingFactForSales', 'Not available')}
             except Exception as e:
                 logger.warning(f"Could not parse value '{value}': {str(e)}")
                 return 0
-        
+
         total_value = sum(df['Estimated Value'].apply(extract_value)) if 'Estimated Value' in df.columns else 0
-        
+
         # Count locations
         locations = df['Location'].value_counts() if 'Location' in df.columns else pd.Series()
-        
+
         # Count risk assessments for sales information
         risk_assessments = df['Risk Assessment'].value_counts() if 'Risk Assessment' in df.columns else pd.Series()
-        
+
         # Count comparable incidents
         comparable_incidents = df['Comparable Incident'].value_counts() if 'Comparable Incident' in df.columns else pd.Series()
-        
+
         # Calculate average business impact
         try:
             if 'Business Impact Score' in df.columns:
@@ -860,12 +845,12 @@ Interesting Fact: {analysis.get('interestingFactForSales', 'Not available')}
         except Exception as e:
             logger.warning(f"Could not calculate average impact score: {str(e)}")
             avg_impact = 0
-        
+
         # Parse and sort by incident date
         if 'Incident Date' in df.columns:
             df['parsed_incident_date'] = df['Incident Date'].apply(self._parse_date)
             df = df.sort_values('parsed_incident_date', ascending=False)
-        
+
         summary = f"""
 Analysis Summary:
 ---------------
@@ -899,14 +884,14 @@ Key Patterns:"""
             summary += f"\n- Most common target: {targets.index[0]} ({targets.iloc[0]} incidents)"
         if not locations.empty:
             summary += f"\n- Most affected location: {locations.index[0]} ({locations.iloc[0]} incidents)"
-            
+
         # Add sales information patterns
         summary += "\n\nSales Engagement Information:"
         if not risk_assessments.empty:
             summary += f"\n- Most common risk level: {risk_assessments.index[0]} ({risk_assessments.iloc[0]} incidents)"
         if not comparable_incidents.empty:
             summary += f"\n- Most common comparable scenario: {comparable_incidents.index[0].split(' - ')[0]} ({comparable_incidents.iloc[0]} incidents)"
-            
+
         # Extract common security recommendations
         if 'Security Recommendation' in df.columns:
             # Get all unique recommendations
@@ -915,19 +900,19 @@ Key Patterns:"""
                 if rec and rec != 'Not available':
                     parts = rec.split(', ')
                     all_recommendations.extend(parts)
-            
+
             # Count occurrences
             from collections import Counter
             rec_counter = Counter(all_recommendations)
             top_recs = rec_counter.most_common(3)
-            
+
             if top_recs:
                 summary += "\n\nTop Security Recommendations:"
                 for rec, count in top_recs:
                     summary += f"\n- {rec}"
 
         summary += "\n\nIndividual Article Summaries (Sorted by Incident Date):\n--------------------------------------------------\n"
-        
+
         # Add individual article summaries directly
         for result in results:
             summary += result + "\n"
@@ -937,7 +922,7 @@ Key Patterns:"""
     def process_single_batch(self, input_file=None, batch_size=10):
         """
         Process a single batch of articles.
-        
+
         Parameters:
         -----------
         input_file : str, optional
@@ -948,7 +933,7 @@ Key Patterns:"""
         try:
             # Set batch size
             self.batch_size = batch_size
-            
+
             # Process articles - either from CSV or database
             if input_file:
                 # Legacy CSV mode - read from CSV file
@@ -960,32 +945,32 @@ Key Patterns:"""
                 try:
                     # Import locally to avoid circular imports
                     from .analyzer import get_unanalyzed_articles
-                    
+
                     with get_db_connection() as conn:
                         articles_to_process = get_unanalyzed_articles(conn, limit=self.batch_size)
-                        
+
                         if not articles_to_process:
                             logger.info("No unanalyzed articles found in the database")
                             return True
                 except Exception as db_err:
                     logger.error(f"Database error: {db_err}")
                     return False
-            
+
             # Process articles in the batch
             batch_results = []
             article_analyses = []  # Store full analysis results for database insertion
-            
+
             logger.info(f"\nProcessing batch of {len(articles_to_process)} articles")
-            
+
             for idx, article in enumerate(articles_to_process):
                 try:
                     logger.info(f"\nAnalyzing article {idx + 1}: {article['title']}")
                     logger.info(f"Location: {article['location']}")
                     logger.info(f"URL: {article['url']}")
-                    
+
                     # Create the analysis prompt
                     prompt = self._create_analysis_prompt(article)
-                    
+
                     # Get analysis from Claude with timeout
                     try:
                         response = self.client.messages.create(
@@ -998,96 +983,96 @@ Key Patterns:"""
                     except Exception as e:
                         logger.error(f"API call failed for article {idx + 1}: {str(e)}")
                         continue
-                    
+
                     # Extract and process the analysis
                     analysis = self._extract_analysis(response.content[0].text)
                     if analysis:
                         # Enhance business information
                         logger.info(f"Enhancing business information for article {idx + 1}")
-                        enhanced_analysis = self._enhance_business_info(analysis)
-                        
+                        enhanced_analysis = self._enhance_business_info(analysis, article)
+
                         # Add fun analysis elements
                         self._add_fun_analysis_elements(enhanced_analysis)
-                        
+
                         # Add article ID and timestamp for database storage
                         enhanced_analysis['article_id'] = article.get('id')
                         enhanced_analysis['analyzed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                        
+
                         # Create article summary
                         summary = self._create_article_summary(article, enhanced_analysis)
                         batch_results.append(summary)
                         article_analyses.append(enhanced_analysis)  # Store for database
-                        
+
                         logger.info(f"Analysis completed successfully")
                         logger.info(f"Analysis results: {json.dumps(enhanced_analysis, indent=2)}")
                     else:
                         logger.warning(f"Failed to extract analysis for article {idx + 1}")
-                        
+
                 except Exception as e:
                     logger.error(f"Error processing article {idx + 1}: {str(e)}")
                     continue
-            
+
             logger.info(f"\nCompleted batch processing")
-            
+
             # Save results to database
             self._save_results_to_database(article_analyses)
-            
+
             # Also save to CSV for backward compatibility
             if batch_results:
                 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                 os.makedirs(self.output_dir, exist_ok=True)
-                
+
                 # Save summaries
                 summary_file = os.path.join(self.output_dir, f'analysis_summary_{timestamp}.txt')
                 with open(summary_file, 'w', encoding='utf-8') as f:
                     f.write("\n\n".join(batch_results))
                 logger.info(f"\nAnalysis summaries saved to {summary_file}")
-                
+
                 # Save raw analysis data
                 json_file = os.path.join(self.output_dir, f'analyzed_leads_single_batch_{timestamp}.json')
                 with open(json_file, 'w', encoding='utf-8') as f:
                     json.dump(article_analyses, f, indent=2)
                 logger.info(f"Raw analysis data saved to {json_file}")
-                
+
                 # Save CSV version
                 csv_file = os.path.join(self.output_dir, f'analyzed_leads_single_batch_{timestamp}.csv')
                 pd.DataFrame(article_analyses).to_csv(csv_file, index=False)
                 logger.info(f"Analysis data saved to CSV: {csv_file}")
-                
+
                 # Generate final summary
                 summary = self._generate_summary(batch_results)
                 logger.info("\nAnalysis Summary:")
                 logger.info(summary)
-                
+
                 # Save the summary to a file
                 summary_output_file = os.path.join(self.output_dir, f'analysis_summary_{timestamp}.txt')
                 with open(summary_output_file, 'w', encoding='utf-8') as f:
                     f.write(summary)
                 logger.info(f"Analysis summary saved to {summary_output_file}")
-                
+
             return True
-            
+
         except Exception as e:
             logger.error(f"Error processing batch: {str(e)}")
             return False
-            
+
     def _save_results_to_database(self, analyses):
         """Save analysis results to the SQLite database."""
         if not analyses:
             logger.info("No analysis results to save to database")
             return
-            
+
         try:
             # Import locally to avoid circular imports
             from .analyzer import save_analysis_results
-            
+
             with get_db_connection() as conn:
                 # Use the refactored function to save results
                 success = save_analysis_results(conn, analyses)
-                
+
                 if not success:
                     logger.error("Failed to save analysis results to database")
-                
+
         except Exception as e:
             logger.error(f"Error saving analysis results to database: {e}")
             # Log full traceback for debugging
@@ -1098,16 +1083,16 @@ def main():
     """Main entry point for the analyzer."""
     # Get the input file path from command line arguments
     if len(sys.argv) != 2:
-        print("Usage: python -m src.analyzer.test_analyzer_single_batch <input_csv_file>")
+        print("Usage: python -m src.analyzer.analyzer_manual_test <input_csv_file>")
         sys.exit(1)
-        
+
     input_file = sys.argv[1]
-    
+
     # Create output directory if it doesn't exist
     os.makedirs('output', exist_ok=True)
-    
+
     # Initialize and run the analyzer
-    analyzer = TestAnalyzerSingleBatch()
+    analyzer = SingleBatchAnalyzer()
     analyzer.process_single_batch(input_file)
 
 if __name__ == "__main__":

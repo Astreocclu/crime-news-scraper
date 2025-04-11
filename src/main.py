@@ -53,7 +53,7 @@ def parse_arguments():
 
 def run_scraper() -> Optional[str]:
     """Run the unified scraper to collect articles.
-    
+
     Returns:
     --------
     Optional[str]
@@ -63,20 +63,20 @@ def run_scraper() -> Optional[str]:
         logger.info("Starting the unified scraper...")
         scraper = UnifiedScraper()
         results = scraper.scrape_all(deep_check=False)
-        
+
         # Find the most recent CSV file in the output directory
         output_dir = 'output'
         csv_files = [f for f in os.listdir(output_dir) if f.endswith('.csv')]
         if not csv_files:
             logger.error("No CSV files found in output directory")
             return None
-            
+
         # Sort by modification time (most recent first)
         csv_files.sort(key=lambda x: os.path.getmtime(os.path.join(output_dir, x)), reverse=True)
         most_recent_csv = os.path.join(output_dir, csv_files[0])
         logger.info(f"Most recent CSV file: {most_recent_csv}")
         return most_recent_csv
-        
+
     except Exception as e:
         logger.error(f"Error running scraper: {e}")
         return None
@@ -84,7 +84,7 @@ def run_scraper() -> Optional[str]:
 def run_analyzer(input_file: Optional[str] = None, batch_size: int = 10, use_database: bool = False):
     """
     Run the analyzer on articles.
-    
+
     Parameters:
     -----------
     input_file : Optional[str]
@@ -99,30 +99,30 @@ def run_analyzer(input_file: Optional[str] = None, batch_size: int = 10, use_dat
             logger.info(f"Starting analyzer with input file: {input_file}")
         else:
             logger.info(f"Starting analyzer with database (batch size: {batch_size})")
-        
+
         # Load API key from environment variable
         load_dotenv()
         api_key = os.getenv('ANTHROPIC_API_KEY')
         if not api_key:
             logger.error("ANTHROPIC_API_KEY environment variable not set")
             return
-            
+
         # Import analyzer module dynamically to avoid circular imports
-        from src.analyzer.test_analyzer_single_batch2 import TestAnalyzerSingleBatch
-        
+        from src.analyzer.analyzer_manual_test import SingleBatchAnalyzer
+
         # Initialize and run the analyzer
-        # TestAnalyzerSingleBatch now loads API key from environment variables
-        analyzer = TestAnalyzerSingleBatch()
-        
+        # SingleBatchAnalyzer now loads API key from environment variables
+        analyzer = SingleBatchAnalyzer()
+
         # If using database, pass None as input_file
         file_arg = None if use_database else input_file
         success = analyzer.process_single_batch(file_arg, batch_size=batch_size)
-        
+
         if success:
             logger.info("Analysis completed successfully")
         else:
             logger.error("Analysis failed")
-            
+
     except Exception as e:
         logger.error(f"Error running analyzer: {e}")
 
@@ -131,20 +131,20 @@ def main():
     try:
         start_time = time.time()
         logger.info("Starting Crime News Scraper application")
-        
+
         # Parse command line arguments
         args = parse_arguments()
-        
+
         # Create output directory if it doesn't exist
         os.makedirs('output', exist_ok=True)
-        
+
         # Initialize the database
         initialize_database()
         logger.info("Database initialized")
-        
+
         # Determine if we're using CSV or database mode
         use_database = args.use_database
-        
+
         # Handle scraping step
         input_file = None
         if args.input_file:
@@ -161,7 +161,7 @@ def main():
         elif not use_database:
             logger.error("No input file specified and scraping is disabled (in CSV mode)")
             return
-        
+
         # Run analyzer if not disabled
         if not args.no_analyze:
             logger.info("Running analyzer")
@@ -169,12 +169,12 @@ def main():
             run_analyzer(input_file, batch_size, use_database)
         else:
             logger.info("Analysis step skipped")
-        
+
         elapsed_time = time.time() - start_time
         logger.info(f"Application completed in {elapsed_time:.2f} seconds")
-        
+
     except Exception as e:
         logger.error(f"Unhandled exception in main: {e}")
-        
+
 if __name__ == "__main__":
     main()
