@@ -7,22 +7,27 @@ from ..jsa.config import MONITORED_LOCATIONS, LOCATION_VARIATIONS
 NEVADACURRENT_CONFIG = {
     "name": "Nevada Current",
     "url": "https://nevadacurrent.com/justice/",
+    "search_url": "https://nevadacurrent.com/?s=crime",
     "selectors": {
         "posts": [
-            "article",
+            "article.post",
+            "article.type-post",
             ".post",
             ".article",
             ".entry"
         ],
         "title": [
-            "h2.entry-title", 
-            ".entry-title", 
-            "h2", 
-            "h3"
+            "h2.entry-title a",
+            "h3.entry-title a",
+            "h2.entry-title",
+            ".entry-title",
+            "h2 a",
+            "h3 a"
         ],
         "date": [
-            ".entry-date", 
-            "time", 
+            "time.entry-date",
+            ".entry-date",
+            "time",
             ".posted-on"
         ],
         "excerpt": [
@@ -31,6 +36,8 @@ NEVADACURRENT_CONFIG = {
             "p"
         ],
         "link": [
+            "h2.entry-title a",
+            "h3.entry-title a",
             ".entry-title a",
             "h2 a",
             "h3 a"
@@ -39,6 +46,11 @@ NEVADACURRENT_CONFIG = {
             ".post-thumbnail img",
             "img",
             ".wp-post-image"
+        ],
+        "pagination": [
+            ".nav-links a.next",
+            "a.next.page-numbers",
+            ".pagination a.next"
         ]
     }
 }
@@ -51,13 +63,13 @@ THEFT_KEYWORDS = [
     'break-in', 'stolen property', 'retail theft',
     'armed robbery', 'robbed', 'burglarized',
     'jewelry', 'store theft', 'business theft',
-    
+
     # Additional Nevada specific terms
     'casino theft', 'strip robbery', 'resort crime',
     'pawn shop', 'luxury theft', 'watches', 'casino',
     'crime', 'criminal', 'arrest', 'police', 'suspect',
     'security', 'investigation', 'property crime',
-    
+
     # Justice system terms
     'court', 'trial', 'sentenced', 'verdict', 'justice'
 ]

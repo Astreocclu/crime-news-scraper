@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+"""
+Wrapper script for running the complete workflow.
+
+This script is a convenience wrapper around the 'workflow' command of src/main.py.
+It allows users to run the complete workflow without having to remember the full command syntax.
+
+Usage:
+    python scripts/workflow.py [options]
+
+Options:
+    --no-scrape          Skip the scraping step
+    --no-analyze         Skip the analysis step
+    --no-nearby          Skip the nearby business finder step
+    --no-complete        Skip the Complete Scrape creation step
+    --input-file FILE    Input file for analysis (if skipping scrape)
+    --analysis-file FILE Analysis file for nearby finder (if skipping analyze)
+    --use-database       Use database for storage instead of CSV files
+    --max-runtime MIN    Maximum runtime in minutes (default: 5)
+    --progress-type TYPE Type of progress indicator (spinner, dots, bar)
+"""
+
+import sys
+import os
+import subprocess
+
+def main():
+    """Run the complete workflow command."""
+    # Get the path to the main.py script
+    main_script = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'src', 'main.py')
+    
+    # Build the command
+    cmd = [sys.executable, main_script, 'workflow']
+    
+    # Add any additional arguments
+    cmd.extend(sys.argv[1:])
+    
+    # Run the command
+    try:
+        subprocess.run(cmd, check=True)
+        return 0
+    except subprocess.CalledProcessError as e:
+        print(f"Error running workflow: {e}", file=sys.stderr)
+        return 1
+
+if __name__ == "__main__":
+    sys.exit(main())

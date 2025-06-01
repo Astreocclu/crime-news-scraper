@@ -1,0 +1,1 @@
+/home/reid/projects/crime-news-scraper/src/scrapers/base.py

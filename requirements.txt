@@ -4,11 +4,6 @@ selenium==4.18.1
 requests==2.31.0
 webdriver-manager==4.0.1
 
-# Testing
-pytest>=7.4.0
-pytest-cov>=4.1.0
-pytest-mock>=3.12.0
-
 # Utilities
 python-dotenv==1.0.1
 tqdm>=4.66.1
@@ -19,10 +14,11 @@ numpy==1.26.4
 
 # AI/ML
 anthropic==0.18.1  # Claude API client
+PerplexiPy==1.2.0  # Perplexity API client
 
 # Geospatial
 googlemaps==4.10.0  # Google Maps API client
 
 # Date/Time Processing
 python-dateutil==2.8.2
-pytz==2024.1 
+pytz==2024.1

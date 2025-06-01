@@ -1,0 +1,111 @@
+# Configuration settings for the nearby business finder module
+
+# Search configuration
+default_search_radius: 1609  # 1 mile in meters
+max_results_per_category: 5
+
+# Target business types to look for - ONLY OUR THREE TARGET TYPES
+target_business_types:
+  # Primary target - Jewelry stores (highest priority)
+  - jewelry_store
+
+  # Secondary targets - Search specifically for these types
+  - luxury_goods_store
+  - sports_memorabilia_store
+
+# Keywords for narrowing down general store results - ENHANCED FOR TARGET IDENTIFICATION
+luxury_keywords:
+  # Core luxury terms
+  - luxury
+  - high-end
+  - designer
+  - boutique
+  - premium
+  - exclusive
+  - upscale
+  - fine
+  - elite
+  - prestige
+  - couture
+  - bespoke
+  - artisan
+  - custom
+  # Luxury brands and categories
+  - rolex
+  - cartier
+  - tiffany
+  - gucci
+  - louis vuitton
+  - prada
+  - chanel
+  - hermès
+  - versace
+  - armani
+  - dior
+  - burberry
+  - fendi
+  - bulgari
+  # Luxury product categories
+  - watches
+  - handbags
+  - leather goods
+  - accessories
+  - timepieces
+  - fine jewelry
+  - diamonds
+  - pearls
+  - gold
+  - silver
+  - platinum
+
+sports_memorabilia_keywords:
+  # Core sports memorabilia terms
+  - sports
+  - memorabilia
+  - collectibles
+  - cards
+  - autograph
+  - team
+  - trading cards
+  - baseball cards
+  - football cards
+  - basketball cards
+  # Sports categories
+  - baseball
+  - football
+  - basketball
+  - hockey
+  - soccer
+  - golf
+  - tennis
+  - nfl
+  - nba
+  - mlb
+  - nhl
+  - mls
+  - ncaa
+  - olympics
+  # Collectible types
+  - signed
+  - autographed
+  - vintage
+  - rookie card
+  - jersey
+  - helmet
+  - bat
+  - ball
+  - puck
+  - trophy
+  - championship
+  - hall of fame
+  # Collectible stores
+  - card shop
+  - sports cards
+  - collectible shop
+  - memorabilia store
+
+# Remove vape/smoke shops from search
+vape_smoke_keywords: []
+
+# Output configuration
+output_directory: nearby_businesses

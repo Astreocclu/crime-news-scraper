@@ -1,0 +1,10 @@
+{
+  "timestamp": "20250411_201029",
+  "total_articles": 5,
+  "web_search_triggered": 5,
+  "web_search_triggered_pct": 100.0,
+  "correct_addresses": 0,
+  "correct_addresses_pct": 0.0,
+  "addresses_improved": 0,
+  "addresses_improved_pct": 0.0
+}

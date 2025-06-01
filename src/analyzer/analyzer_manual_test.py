@@ -13,6 +13,46 @@ import requests
 from urllib.parse import quote_plus
 from ..database import get_db_connection
 from ..utils.address_extractor import extract_address_from_article, normalize_address
+from ..perplexity_client import PerplexityClient
+
+def web_search(query, num_results=5):
+    """Use the web-search tool provided by the environment."""
+    try:
+        # Try to import from web_search module
+        try:
+            from web_search import web_search as augment_web_search
+            logger.info(f"Using web-search from web_search module")
+            return augment_web_search(query=query, num_results=num_results)
+        except ImportError:
+            pass
+
+        # Try to import from the current environment
+        try:
+            import web_search as ws_module
+            logger.info(f"Using web-search from web_search module")
+            return ws_module.web_search(query=query, num_results=num_results)
+        except ImportError:
+            pass
+
+        # Check if web_search is available in the global namespace (but not this function)
+        import inspect
+        frame = inspect.currentframe()
+        try:
+            # Get the caller's globals to avoid self-reference
+            caller_globals = frame.f_back.f_globals if frame.f_back else globals()
+            if 'web_search' in caller_globals and caller_globals['web_search'] is not web_search:
+                logger.info(f"Using web-search from caller's global scope")
+                return caller_globals['web_search'](query=query, num_results=num_results)
+        finally:
+            del frame
+
+        # If no web search is available, log and return empty results
+        logger.warning(f"Web search not available in environment, returning empty results")
+        return "No web search results available - web search tool not found in environment"
+
+    except Exception as e:
+        logger.error(f"Error using web-search tool: {str(e)}")
+        return f"Web search error: {str(e)}"
 
 # Configure logging to both file and console
 logging.basicConfig(
@@ -39,6 +79,9 @@ class SingleBatchAnalyzer:
         self.temperature = 0.7
         self.output_dir = 'output'
         self.client = anthropic.Anthropic(api_key=self.api_key)
+
+        # Initialize the Perplexity client for address confirmation
+        self.perplexity_client = PerplexityClient()
 
     def _format_timestamp(self, timestamp_str):
         """Convert timestamp string to human-readable format."""
@@ -75,7 +118,11 @@ class SingleBatchAnalyzer:
         # Skip if business name is already specified and not generic
         if (analysis.get('businessName') and
             analysis['businessName'] not in ['Not specified', 'Not mentioned', 'not specified in the excerpt']):
-            return self._find_business_address(analysis)
+            analysis = self._find_business_address(analysis)
+            # If we still have low confidence or unknown address, try web search
+            if self._should_perform_web_search(analysis):
+                analysis = self._enhance_with_web_search(analysis, article)
+            return analysis
 
         # Extract location info for search
         location = analysis.get('detailedLocation', '')
@@ -156,7 +203,586 @@ class SingleBatchAnalyzer:
         except Exception as e:
             logger.error(f"Error enhancing business information: {str(e)}")
 
+        # If we still have low confidence or unknown address, try web search
+        if self._should_perform_web_search(analysis):
+            analysis = self._enhance_with_web_search(analysis, article)
+
         return analysis
+
+    def _normalize_location(self, location):
+        """
+        Normalize location string for better search results.
+
+        Parameters:
+        -----------
+        location : str
+            The location string to normalize
+
+        Returns:
+        --------
+        str
+            The normalized location string
+        """
+        if not location or location.lower() in ['unknown', 'not specified', 'not mentioned', 'not available', 'other']:
+            return location
+
+        # Convert to lowercase
+        normalized = location.lower()
+
+        # Remove extra spaces
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+
+        # Standardize state abbreviations
+        state_patterns = [
+            (r'\balabama\b', 'AL'),
+            (r'\balaska\b', 'AK'),
+            (r'\barizona\b', 'AZ'),
+            (r'\barkansas\b', 'AR'),
+            (r'\bcalifornia\b', 'CA'),
+            (r'\bcolorado\b', 'CO'),
+            (r'\bconnecticut\b', 'CT'),
+            (r'\bdelaware\b', 'DE'),
+            (r'\bflorida\b', 'FL'),
+            (r'\bgeorgia\b', 'GA'),
+            (r'\bhawaii\b', 'HI'),
+            (r'\bidaho\b', 'ID'),
+            (r'\billinois\b', 'IL'),
+            (r'\bindiana\b', 'IN'),
+            (r'\biowa\b', 'IA'),
+            (r'\bkansas\b', 'KS'),
+            (r'\bkentucky\b', 'KY'),
+            (r'\blouisiana\b', 'LA'),
+            (r'\bmaine\b', 'ME'),
+            (r'\bmaryland\b', 'MD'),
+            (r'\bmassachusetts\b', 'MA'),
+            (r'\bmichigan\b', 'MI'),
+            (r'\bminnesota\b', 'MN'),
+            (r'\bmississippi\b', 'MS'),
+            (r'\bmissouri\b', 'MO'),
+            (r'\bmontana\b', 'MT'),
+            (r'\bnebraska\b', 'NE'),
+            (r'\bnevada\b', 'NV'),
+            (r'\bnew hampshire\b', 'NH'),
+            (r'\bnew jersey\b', 'NJ'),
+            (r'\bnew mexico\b', 'NM'),
+            (r'\bnew york\b', 'NY'),
+            (r'\bnorth carolina\b', 'NC'),
+            (r'\bnorth dakota\b', 'ND'),
+            (r'\bohio\b', 'OH'),
+            (r'\boklahoma\b', 'OK'),
+            (r'\boregon\b', 'OR'),
+            (r'\bpennsylvania\b', 'PA'),
+            (r'\brhode island\b', 'RI'),
+            (r'\bsouth carolina\b', 'SC'),
+            (r'\bsouth dakota\b', 'SD'),
+            (r'\btennessee\b', 'TN'),
+            (r'\btexas\b', 'TX'),
+            (r'\butah\b', 'UT'),
+            (r'\bvermont\b', 'VT'),
+            (r'\bvirginia\b', 'VA'),
+            (r'\bwashington\b', 'WA'),
+            (r'\bwest virginia\b', 'WV'),
+            (r'\bwisconsin\b', 'WI'),
+            (r'\bwyoming\b', 'WY'),
+            (r'\bdistrict of columbia\b', 'DC')
+        ]
+
+        for pattern, abbrev in state_patterns:
+            normalized = re.sub(pattern, abbrev, normalized)
+
+        return normalized
+
+    def _extract_city_state(self, location):
+        """
+        Extract city and state from location string.
+
+        Parameters:
+        -----------
+        location : str
+            The location string to extract from
+
+        Returns:
+        --------
+        tuple
+            (city, state) tuple, or (None, None) if extraction fails
+        """
+        if not location or location.lower() in ['unknown', 'not specified', 'not mentioned', 'not available', 'other']:
+            return None, None
+
+        # Try to match city, state pattern
+        match = re.search(r'([A-Za-z\s]+),\s*([A-Z]{2})', location)
+        if match:
+            city = match.group(1).strip()
+            state = match.group(2).strip()
+            return city, state
+
+        # Try to match city and state without comma
+        match = re.search(r'([A-Za-z\s]+)\s+([A-Z]{2})\b', location)
+        if match:
+            city = match.group(1).strip()
+            state = match.group(2).strip()
+            return city, state
+
+        return None, None
+
+    def _should_perform_web_search(self, analysis):
+        """
+        Determine if web search should be performed based on trigger conditions.
+
+        Web search is triggered when the address is unknown, missing, or has low confidence.
+        This helps improve the quality of address information for crime incidents at jewelry stores.
+
+        Parameters:
+        -----------
+        analysis : dict
+            The analysis dictionary containing address information
+
+        Returns:
+        --------
+        bool
+            True if web search should be performed, False otherwise
+        """
+        # Check if address is missing or unknown
+        address = analysis.get('exactAddress', '')
+        if not address or address.lower() in ['unknown', 'unable to determine', 'not specified', 'not available']:
+            logger.info("Triggering web search due to missing or unknown address")
+            return True
+
+        # Check if address confidence is low
+        confidence = analysis.get('addressConfidence', 'low')
+        if confidence == 'low':
+            logger.info("Triggering web search due to low address confidence")
+            return True
+
+        return False
+
+    def _parse_and_validate_address_from_search(self, web_search_results, analysis):
+        """
+        Parse and validate addresses from web search results.
+
+        Parameters:
+        -----------
+        web_search_results : str
+            The web search results in markdown format
+        analysis : dict
+            The analysis dictionary for context
+
+        Returns:
+        --------
+        dict or None
+            The best validated address with metadata, or None if no valid address found
+        """
+        if not web_search_results:
+            logger.warning("No web search results to parse")
+            return None
+
+        # Extract potential addresses from search results
+        logger.info("Extracting addresses from web search results")
+        addresses = self._extract_addresses_from_search_results(web_search_results, analysis)
+
+        if not addresses:
+            logger.warning("No addresses found in web search results")
+            return None
+
+        logger.info(f"Found {len(addresses)} potential addresses in web search results")
+        for i, addr in enumerate(addresses):
+            logger.info(f"Address candidate {i+1}: {addr['address']} (Source: {addr['source']}, Relevant: {addr['is_relevant']}, Quality: {addr['source_quality']})")
+
+        # Validate and select the best address
+        logger.info("Validating addresses and selecting the best match")
+        best_address = self._validate_addresses(addresses, analysis)
+
+        if not best_address:
+            logger.warning("No valid addresses found in web search results")
+            return None
+
+        logger.info(f"Found validated address: {best_address['address']} with confidence {best_address['confidence']}")
+        logger.info(f"Validation reasoning: {best_address['reasoning']}")
+        return best_address
+
+    def _enhance_with_web_search(self, analysis, article=None):
+        """
+        Enhance address information using Perplexity API.
+
+        This method queries the Perplexity API to find more accurate address information
+        for crime incidents at jewelry stores. It extracts relevant information from
+        the analysis data to create a structured prompt, sends it to the Perplexity API via
+        the PerplexityClient, and then processes the response to extract, validate, and
+        normalize the address.
+
+        The process involves:
+        1. Extracting information for the prompt (business name, location, crime type, etc.)
+        2. Normalizing location information for better search results
+        3. Creating a structured prompt for the Perplexity API
+        4. Sending the prompt to the Perplexity API via the PerplexityClient
+        5. Processing the response to extract and normalize the address
+        6. Validating the address format and assigning a confidence score
+        7. Updating the analysis with the enhanced address information
+
+        The method includes special handling for cases where location information is missing
+        or ambiguous, attempting to extract location details from the article summary or title.
+        It also performs basic validation on the returned address to ensure it contains both
+        numeric and alphabetic characters, which is typical for valid addresses.
+
+        Parameters:
+        -----------
+        analysis : dict
+            The analysis dictionary containing crime incident information, including:
+            - businessName: Name of the business involved in the incident
+            - detailedLocation: Location information (city, state)
+            - crimeType: Type of crime (robbery, burglary, etc.)
+            - incidentDate: Date of the incident
+            - storeType: Type of store (jewelry store, pawn shop, etc.)
+            - summary: Brief summary of the incident
+        article : dict, optional
+            The original article data for additional context, which may include:
+            - title: Article title
+            - excerpt: Article excerpt or content
+            - source: Source of the article
+            - date: Publication date
+
+        Returns:
+        --------
+        dict
+            Updated analysis with enhanced address information, including:
+            - exactAddress: The normalized address string
+            - addressConfidence: Confidence level (high, medium, low)
+            - addressSource: Source of the address (perplexity_api)
+            - webSearchReasoning: Explanation of the address validation process
+        """
+        # Ensure we have enough information to construct a prompt
+        business_name = analysis.get('businessName', '')
+        location = analysis.get('detailedLocation', '')
+        crime_type = analysis.get('crimeType', '')
+        incident_date = analysis.get('incidentDate', '')
+        store_type = analysis.get('storeType', '')
+        summary = analysis.get('summary', '')
+
+        # Skip if we don't have enough information
+        if not location and not business_name:
+            logger.warning("Not enough information for Perplexity API query")
+            return analysis
+
+        # Extract location from summary if available
+        extracted_location = None
+        if summary:
+            # Look for city and state pattern in the summary
+            location_patterns = [
+                r'([A-Z][a-zA-Z\s]+),\s*([A-Z]{2})\s*-',  # City, State -
+                r'([A-Z][a-zA-Z\s]+),\s*([A-Z]{2})\s*\u2013',  # City, State – (with em dash)
+                r'([A-Z][a-zA-Z\s]+),\s*([A-Z]{2})\s*\.',  # City, State.
+                r'([A-Z][a-zA-Z\s]+),\s*([A-Z]{2})\s',  # City, State
+                r'in\s+([A-Z][a-zA-Z\s]+),\s*([A-Z]{2})',  # in City, State
+                r'at\s+([A-Z][a-zA-Z\s]+),\s*([A-Z]{2})'   # at City, State
+            ]
+
+            for pattern in location_patterns:
+                matches = re.findall(pattern, summary)
+                if matches:
+                    city, state = matches[0]
+                    extracted_location = f"{city.strip()}, {state.strip()}"
+                    logger.info(f"Extracted location from summary: {extracted_location}")
+                    break
+
+        # Use the extracted location if available, otherwise use the provided location
+        if extracted_location and (not location or location.lower() in ['unknown', 'not specified', 'not mentioned', 'not available']):
+            location = extracted_location
+            logger.info(f"Using extracted location for search: {location}")
+
+        # Normalize location for better search results
+        normalized_location = self._normalize_location(location)
+
+        # Extract city and state from location if possible
+        city, state = self._extract_city_state(normalized_location)
+
+        # If we have city and state, use them for a more specific search
+        if city and state:
+            location = f"{city}, {state}"
+            logger.info(f"Using normalized location for search: {location}")
+
+        # Generate prompt for Perplexity API
+        prompt = f"""I need the exact street address of a jewelry store that was involved in a crime incident.
+        Please provide ONLY the full address with no additional commentary.
+
+        Business name: {business_name if business_name and business_name.lower() not in ['unknown', 'not specified', 'not mentioned', 'not available'] else 'Not specified'}
+        Store type: {store_type if store_type and store_type.lower() not in ['unknown', 'not specified', 'not mentioned'] else 'jewelry store'}
+        Location: {location if location and location.lower() not in ['unknown', 'not specified', 'not mentioned', 'not available'] else 'Not specified'}
+        Crime type: {crime_type if crime_type else 'Not specified'}
+        Incident date: {incident_date if incident_date else 'Not specified'}
+
+        Return ONLY the full street address with city, state, and zip code. If you cannot find the exact address, respond with 'Address not found'.
+        """
+
+        logger.info(f"Perplexity API prompt: {prompt}")
+
+        try:
+            # Query the Perplexity API
+            logger.info("Querying Perplexity API for address information")
+            address_response = self.perplexity_client.get_address(prompt)
+
+            if not address_response:
+                logger.warning("No response from Perplexity API")
+                return analysis
+
+            # Log the raw response
+            logger.info(f"Perplexity API response: {address_response}")
+
+            # Check if the response indicates no address was found
+            if 'not found' in address_response.lower() or 'unable to' in address_response.lower():
+                logger.warning("Perplexity API could not find an address")
+                return analysis
+
+            # Normalize the address
+            normalized_address = self._normalize_address(address_response)
+            logger.info(f"Normalized address: {normalized_address}")
+
+            # Perform basic validation (contains numbers and text)
+            if re.search(r'\d', normalized_address) and re.search(r'[A-Za-z]', normalized_address):
+                # Update the analysis with the address from Perplexity
+                analysis['exactAddress'] = normalized_address
+                analysis['addressConfidence'] = 'medium'  # Default to medium confidence
+                analysis['addressSource'] = 'perplexity_api'
+                analysis['webSearchReasoning'] = "Address obtained via Perplexity API."
+
+                # If the address contains the location, increase confidence
+                if location and location.lower() not in ['unknown', 'not specified', 'not mentioned', 'not available']:
+                    if location.lower() in normalized_address.lower():
+                        analysis['addressConfidence'] = 'high'
+                        analysis['webSearchReasoning'] = "Address obtained via Perplexity API and verified to contain the expected location."
+
+                logger.info(f"Enhanced address from Perplexity API: {normalized_address}")
+            else:
+                logger.warning(f"Invalid address format from Perplexity API: {normalized_address}")
+
+        except Exception as e:
+            logger.error(f"Error enhancing with Perplexity API: {str(e)}")
+
+        return analysis
+
+    def _extract_addresses_from_search_results(self, search_results, analysis):
+        """
+        Extract potential addresses from web search results.
+
+        Parameters:
+        -----------
+        search_results : str
+            The web search results in markdown format
+        analysis : dict
+            The analysis dictionary for context
+
+        Returns:
+        --------
+        list
+            List of potential addresses with metadata
+        """
+        if not search_results or search_results.startswith("No web search results available"):
+            logger.warning("No valid web search results to extract addresses from")
+            return []
+
+        addresses = []
+
+        try:
+            # Enhanced address patterns to match various formats
+            address_patterns = [
+                # Standard US address format: number street, city, state zip
+                r'\b\d+\s+[A-Za-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Way|Circle|Cir|Court|Ct|Place|Pl)\s*,?\s*[A-Za-z\s]+,?\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?\b',
+                # Address with just street and city/state
+                r'\b\d+\s+[A-Za-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Way|Circle|Cir|Court|Ct|Place|Pl)\s*,?\s*[A-Za-z\s]+,?\s*[A-Z]{2}\b',
+                # Address without number but with street name
+                r'\b[A-Za-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Way|Circle|Cir|Court|Ct|Place|Pl)\s*,?\s*[A-Za-z\s]+,?\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?\b',
+                # Simple format: street, city state
+                r'\b[A-Za-z0-9\s]+,\s*[A-Za-z\s]+,?\s*[A-Z]{2}\b'
+            ]
+
+            # Get location context from analysis
+            location_context = analysis.get('detailedLocation', '').lower()
+            business_name = analysis.get('businessName', '').lower()
+
+            # Split search results into lines for processing
+            lines = search_results.split('\n')
+
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+
+                # Try each address pattern
+                for pattern in address_patterns:
+                    matches = re.findall(pattern, line, re.IGNORECASE)
+                    for match in matches:
+                        address = match.strip()
+
+                        # Basic validation - skip if too short or generic
+                        if len(address) < 10 or address.lower() in ['not available', 'unknown', 'not specified']:
+                            continue
+
+                        # Check relevance to the incident location
+                        is_relevant = self._is_address_relevant(address, location_context, business_name)
+
+                        # Assess source quality based on the line content
+                        source_quality = self._assess_line_quality(line)
+
+                        addresses.append({
+                            'address': address,
+                            'source': line,
+                            'is_relevant': is_relevant,
+                            'source_quality': source_quality
+                        })
+
+            # Remove duplicates while preserving order
+            seen_addresses = set()
+            unique_addresses = []
+            for addr in addresses:
+                addr_key = addr['address'].lower().strip()
+                if addr_key not in seen_addresses:
+                    seen_addresses.add(addr_key)
+                    unique_addresses.append(addr)
+
+            logger.info(f"Extracted {len(unique_addresses)} unique addresses from search results")
+            return unique_addresses
+
+        except Exception as e:
+            logger.error(f"Error extracting addresses from search results: {str(e)}")
+            return []
+
+    # This method has been replaced by the Perplexity API integration
+    # def _extract_business_name(self, title, snippet):
+    #     """
+    #     Extract business name from search result title and snippet.
+    #
+    #     DEPRECATED: This method has been replaced by the Perplexity API integration,
+    #     which provides more accurate and reliable business name extraction directly.
+    #     See the _enhance_with_web_search method for the new implementation.
+    #     """
+    #     return None
+
+    # This method has been replaced by the Perplexity API integration
+    # def _assess_source_quality(self, url):
+    #     """
+    #     Assess the quality of the source URL.
+    #
+    #     DEPRECATED: This method has been replaced by the Perplexity API integration,
+    #     which provides more reliable information without needing to assess source quality.
+    #     See the _enhance_with_web_search method for the new implementation.
+    #     """
+    #     return 'low'
+
+    def _is_address_relevant(self, address, location_context, business_name):
+        """
+        Check if an address is relevant to the incident location.
+
+        Parameters:
+        -----------
+        address : str
+            The address to check
+        location_context : str
+            The location context from the analysis
+        business_name : str
+            The business name from the analysis
+
+        Returns:
+        --------
+        bool
+            True if the address appears relevant
+        """
+        address_lower = address.lower()
+
+        # Check if location context appears in the address
+        if location_context and any(word in address_lower for word in location_context.split() if len(word) > 3):
+            return True
+
+        # Check if business name appears in the address context
+        if business_name and any(word in address_lower for word in business_name.split() if len(word) > 3):
+            return True
+
+        return False
+
+    def _assess_line_quality(self, line):
+        """
+        Assess the quality of a search result line.
+
+        Parameters:
+        -----------
+        line : str
+            The line to assess
+
+        Returns:
+        --------
+        str
+            Quality assessment: 'high', 'medium', or 'low'
+        """
+        line_lower = line.lower()
+
+        # High quality indicators
+        if any(indicator in line_lower for indicator in ['address:', 'located at', 'store address', 'business address']):
+            return 'high'
+
+        # Medium quality indicators
+        if any(indicator in line_lower for indicator in ['street', 'avenue', 'road', 'boulevard']):
+            return 'medium'
+
+        return 'low'
+
+    def _validate_addresses(self, addresses, analysis):
+        """
+        Validate and select the best address from the list of potential addresses.
+
+        Parameters:
+        -----------
+        addresses : list
+            List of potential addresses with metadata
+        analysis : dict
+            The analysis dictionary for context
+
+        Returns:
+        --------
+        dict or None
+            The best validated address with metadata, or None if no valid address found
+        """
+        if not addresses:
+            return None
+
+        # Score each address
+        scored_addresses = []
+        for addr in addresses:
+            score = 0
+
+            # Relevance score
+            if addr['is_relevant']:
+                score += 3
+
+            # Source quality score
+            if addr['source_quality'] == 'high':
+                score += 3
+            elif addr['source_quality'] == 'medium':
+                score += 2
+            else:
+                score += 1
+
+            # Length and completeness score
+            if len(addr['address']) > 20:
+                score += 1
+            if ',' in addr['address']:  # Has city/state separation
+                score += 1
+            if re.search(r'\d{5}', addr['address']):  # Has zip code
+                score += 1
+
+            scored_addresses.append({
+                'address': addr['address'],
+                'score': score,
+                'confidence': min(score / 10.0, 1.0),  # Normalize to 0-1
+                'reasoning': f"Score: {score}/10 based on relevance, source quality, and completeness"
+            })
+
+        # Sort by score and return the best
+        scored_addresses.sort(key=lambda x: x['score'], reverse=True)
+
+        if scored_addresses:
+            best = scored_addresses[0]
+            logger.info(f"Selected best address: {best['address']} with score {best['score']}")
+            return best
+
+        return None
 
     def _add_fun_analysis_elements(self, analysis):
         """Add engaging sales-oriented elements to the analysis for business development"""
@@ -337,6 +963,87 @@ class SingleBatchAnalyzer:
             Normalized address string
         """
         return normalize_address(address)
+
+    def _normalize_location(self, location):
+        """
+        Normalize location string for better matching.
+
+        Parameters:
+        -----------
+        location : str
+            Raw location string to normalize
+
+        Returns:
+        --------
+        str
+            Normalized location string
+        """
+        if not location:
+            return ''
+
+        # Convert to lowercase
+        location = location.lower()
+
+        # Handle common abbreviations
+        location = location.replace('n.', 'north')
+        location = location.replace('s.', 'south')
+        location = location.replace('e.', 'east')
+        location = location.replace('w.', 'west')
+
+        # Handle state abbreviations
+        state_map = {
+            'al': 'alabama', 'ak': 'alaska', 'az': 'arizona', 'ar': 'arkansas',
+            'ca': 'california', 'co': 'colorado', 'ct': 'connecticut', 'de': 'delaware',
+            'fl': 'florida', 'ga': 'georgia', 'hi': 'hawaii', 'id': 'idaho',
+            'il': 'illinois', 'in': 'indiana', 'ia': 'iowa', 'ks': 'kansas',
+            'ky': 'kentucky', 'la': 'louisiana', 'me': 'maine', 'md': 'maryland',
+            'ma': 'massachusetts', 'mi': 'michigan', 'mn': 'minnesota', 'ms': 'mississippi',
+            'mo': 'missouri', 'mt': 'montana', 'ne': 'nebraska', 'nv': 'nevada',
+            'nh': 'new hampshire', 'nj': 'new jersey', 'nm': 'new mexico', 'ny': 'new york',
+            'nc': 'north carolina', 'nd': 'north dakota', 'oh': 'ohio', 'ok': 'oklahoma',
+            'or': 'oregon', 'pa': 'pennsylvania', 'ri': 'rhode island', 'sc': 'south carolina',
+            'sd': 'south dakota', 'tn': 'tennessee', 'tx': 'texas', 'ut': 'utah',
+            'vt': 'vermont', 'va': 'virginia', 'wa': 'washington', 'wv': 'west virginia',
+            'wi': 'wisconsin', 'wy': 'wyoming', 'dc': 'district of columbia'
+        }
+
+        # Check if location ends with a state abbreviation
+        for abbr, full in state_map.items():
+            if location.endswith(f', {abbr}'):
+                location = location[:-len(abbr)-2] + f', {full}'
+                break
+
+        # Normalize whitespace
+        location = re.sub(r'\s+', ' ', location).strip()
+
+        return location
+
+    def _extract_city_state(self, location):
+        """
+        Extract city and state from a location string.
+
+        Parameters:
+        -----------
+        location : str
+            Location string to parse
+
+        Returns:
+        --------
+        tuple
+            (city, state) tuple, empty strings if not found
+        """
+        if not location:
+            return '', ''
+
+        # Try to match city, state pattern
+        match = re.search(r'([^,]+),\s*([^,]+)$', location)
+        if match:
+            city = match.group(1).strip()
+            state = match.group(2).strip()
+            return city, state
+
+        # If no comma, assume the whole string is a city or state
+        return location, ''
 
     def _find_business_address(self, analysis):
         """Find the exact address for a known business name"""
@@ -919,16 +1626,16 @@ Key Patterns:"""
 
         return summary
 
-    def process_single_batch(self, input_file=None, batch_size=10):
+    def process_single_batch(self, input_file: Optional[str] = None, batch_size: int = 10) -> bool:
         """
         Process a single batch of articles.
 
-        Parameters:
-        -----------
-        input_file : str, optional
-            Path to input CSV file. If not provided, articles are fetched from the database.
-        batch_size : int, optional
-            Number of articles to process in one batch. Defaults to 10.
+        Args:
+            input_file: Path to input CSV file. If not provided, articles are fetched from the database.
+            batch_size: Number of articles to process in one batch. Defaults to 10.
+
+        Returns:
+            bool: True if processing completed successfully, False otherwise
         """
         try:
             # Set batch size
@@ -990,6 +1697,94 @@ Key Patterns:"""
                         # Enhance business information
                         logger.info(f"Enhancing business information for article {idx + 1}")
                         enhanced_analysis = self._enhance_business_info(analysis, article)
+
+                        # Check if we should perform web search for address verification
+                        should_search = self._should_perform_web_search(enhanced_analysis)
+                        can_search = True  # Flag to track if web search is available
+
+                        # Generate web search query if needed
+                        web_search_query = None
+                        if should_search:
+                            try:
+                                # Generate search query based on available information
+                                business_name = enhanced_analysis.get('businessName', '')
+                                location = enhanced_analysis.get('detailedLocation', '')
+                                crime_type = enhanced_analysis.get('crimeType', '')
+                                incident_date = enhanced_analysis.get('incidentDate', '')
+                                store_type = enhanced_analysis.get('storeType', '')
+
+                                # Skip if we don't have enough information
+                                if not location and not business_name:
+                                    logger.warning("Not enough information for web search")
+                                else:
+                                    # Generate search query based on available information
+                                    query_parts = []
+
+                                    # Add business name if available and not generic
+                                    if business_name and business_name.lower() not in ['unknown', 'not specified', 'not mentioned', 'not available']:
+                                        query_parts.append(f'"{business_name}"')
+                                    elif store_type and store_type.lower() not in ['unknown', 'not specified', 'not mentioned']:
+                                        query_parts.append(f'"{store_type}"')
+                                    else:
+                                        query_parts.append('"jewelry store"')
+
+                                    # Add crime type if available
+                                    if crime_type and crime_type.lower() not in ['unknown', 'not specified', 'not mentioned']:
+                                        query_parts.append(f'"{crime_type}"')
+
+                                    # Add location
+                                    if location:
+                                        query_parts.append(f'in "{location}"')
+
+                                    # Add date if available and not generic
+                                    if incident_date and incident_date.lower() not in ['not available', 'unknown', 'not specified']:
+                                        query_parts.append(f'on "{incident_date}"')
+
+                                    # Add 'address' keyword
+                                    query_parts.append('address')
+
+                                    # Construct the final query
+                                    web_search_query = ' '.join(query_parts)
+                                    logger.info(f"Generated web search query: {web_search_query}")
+                            except Exception as e:
+                                logger.error(f"Error generating web search query: {str(e)}")
+                                web_search_query = None
+
+                        # Perform web search if query was generated
+                        web_search_results = None
+                        if web_search_query:
+                            try:
+                                # Call the web_search function
+                                logger.info(f"Performing web search with query: {web_search_query}")
+                                web_search_results = web_search(query=web_search_query, num_results=5)
+                                logger.info("Web search completed successfully")
+                            except Exception as e:
+                                logger.error(f"Error performing web search: {str(e)}")
+                                can_search = False
+
+                        # Parse and validate addresses from search results
+                        validated_address = None
+                        if should_search and can_search and web_search_results:
+                            try:
+                                # Parse and validate addresses
+                                validated_address = self._parse_and_validate_address_from_search(web_search_results, enhanced_analysis)
+                            except Exception as e:
+                                logger.error(f"Error parsing/validating addresses: {str(e)}")
+
+                        # Update analysis with validated address
+                        if validated_address:
+                            # Update the analysis with the validated address
+                            enhanced_analysis['exactAddress'] = validated_address['address']
+                            enhanced_analysis['addressConfidence'] = validated_address['confidence']
+                            enhanced_analysis['addressSource'] = 'web_search_verification'
+                            enhanced_analysis['webSearchReasoning'] = validated_address['reasoning']
+
+                            # If business name was also found, update it
+                            if validated_address.get('business_name') and validated_address['business_name'] != enhanced_analysis.get('businessName', ''):
+                                enhanced_analysis['businessName'] = validated_address['business_name']
+                                enhanced_analysis['businessNameConfidence'] = 'high'  # Web search verification gives high confidence
+
+                            logger.info(f"Updated analysis with validated address: {validated_address['address']}")
 
                         # Add fun analysis elements
                         self._add_fun_analysis_elements(enhanced_analysis)

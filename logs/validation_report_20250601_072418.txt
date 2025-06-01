@@ -1,0 +1,28 @@
+================================================================================
+PRODUCTION DATA VALIDATION REPORT
+Generated: 2025-06-01 07:24:18
+================================================================================
+
+VALIDATION RESULTS:
+  articles_count: 242
+  analysis_results_count: 102
+  nearby_businesses_count: 594
+  unanalyzed_articles: 140
+  address_completeness_rate: 81.37254901960785
+  address_confidence_high: 12
+  address_confidence_low: 38
+  address_confidence_medium: 38
+  business_naming_rate: 95.09803921568627
+  business_name_confidence_high: 28
+  business_name_confidence_low: 13
+  business_name_confidence_medium: 38
+  latest_analysis_file: analyzed_leads_single_batch_20250601_072304.csv
+  analysis_records: 10
+  latest_nearby_file: nearby_businesses_20250601_072304.csv
+  nearby_records: 91
+
+ERRORS FOUND:
+  ❌ Lead quality validation error: no such column: leadScore
+
+❌ CRITICAL ERRORS FOUND - REQUIRES ATTENTION
+================================================================================

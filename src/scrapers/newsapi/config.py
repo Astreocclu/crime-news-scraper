@@ -1,10 +1,15 @@
 """Configuration for the NewsAPI scraper."""
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # API configuration
 NEWSAPI_CONFIG = {
     "name": "NewsAPI",
     "base_url": "https://newsapi.org/v2/",
-    "api_key": "010ae97959454a2c930036138e2f42ee",
+    "api_key": os.getenv("NEWSAPI_KEY", "010ae97959454a2c930036138e2f42ee"),
     "default_params": {
         "language": "en",
         "sortBy": "publishedAt",
@@ -22,7 +27,7 @@ NEWSAPI_CONFIG = {
         "Phoenix jewelry store robbery",
         "Dallas jewelry store robbery",
         "Houston jewelry store robbery",
-        
+
         # Store type variations
         "luxury store smash and grab",
         "sports memorabilia theft",
@@ -47,11 +52,11 @@ LOCATION_VARIATIONS = {
 
 # Keywords for classification
 THEFT_KEYWORDS = [
-    'theft', 'thefts', 'steal', 'stole', 'stolen', 
+    'theft', 'thefts', 'steal', 'stole', 'stolen',
     'robbery', 'robber', 'robberies', 'rob', 'robbed',
     'burglary', 'burglar', 'burglaries',
-    'smash-and-grab', 'smash and grab', 
-    'jewelry', 'jeweler', 'jewelers', 'jewelery', 
+    'smash-and-grab', 'smash and grab',
+    'jewelry', 'jeweler', 'jewelers', 'jewelery',
     'necklace', 'bracelet', 'ring', 'watches', 'rolex',
     'diamond', 'gold', 'silver', 'precious'
 ]

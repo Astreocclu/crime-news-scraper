@@ -34,12 +34,18 @@ ENV/
 # Project specific
 .env
 .env.*
-output/
+!.env.example
+output/*
+!output/.gitkeep
+!output/logs/.gitkeep
+!output/reports/.gitkeep
+!output/scraped_data/.gitkeep
+!output/analysis/.gitkeep
 test_data/
 
 # Logs
-logs/*
-!logs/.gitkeep
+output/logs/*
+!output/logs/.gitkeep
 *.log
 *.log.*
 analyzer.log
@@ -49,4 +55,4 @@ src/analyzer/test_analyzer_single_batch.py
 
 # OS specific
 .DS_Store
-Thumbs.db 
+Thumbs.db

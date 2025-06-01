@@ -1,0 +1,39 @@
+================================================================================
+PRODUCTION DATA VALIDATION REPORT
+Generated: 2025-06-01 07:24:43
+================================================================================
+
+VALIDATION RESULTS:
+  articles_count: 242
+  analysis_results_count: 102
+  nearby_businesses_count: 594
+  unanalyzed_articles: 140
+  address_completeness_rate: 81.37254901960785
+  address_confidence_high: 12
+  address_confidence_low: 38
+  address_confidence_medium: 38
+  business_naming_rate: 95.09803921568627
+  business_name_confidence_high: 28
+  business_name_confidence_low: 13
+  business_name_confidence_medium: 38
+  lead_score_6: 113
+  lead_score_5: 65
+  lead_score_4: 3
+  lead_score_3: 211
+  lead_score_2: 149
+  lead_score_1: 1
+  lead_score_0: 52
+  high_quality_lead_rate: 29.96632996632997
+  business_type_clothing_store: 205
+  business_type_jewelry: 178
+  business_type_shopping_mall: 154
+  business_type_: 52
+  business_type_sports_memorabilia: 3
+  business_type_luxury_goods: 2
+  latest_analysis_file: analyzed_leads_single_batch_20250601_072304.csv
+  analysis_records: 10
+  latest_nearby_file: nearby_businesses_20250601_072304.csv
+  nearby_records: 91
+
+✅ ALL VALIDATIONS PASSED - PRODUCTION READY
+================================================================================
