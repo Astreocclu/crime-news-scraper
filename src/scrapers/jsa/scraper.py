@@ -1,15 +1,34 @@
 """
-JSA scraper implementation.
+Crime News Scraper - JSA (Jewelers Security Alliance) Scraper Module
 
-This module provides a Selenium-based scraper for the Jewelers Security Alliance (JSA)
-website, extracting jewelry theft incidents and related information.
+This module provides a comprehensive Selenium-based scraper for the Jewelers Security
+Alliance (JSA) website, which is our PRIMARY source for jewelry industry crime incidents.
+
+The JSA scraper is critical to our focused targeting approach as it provides:
+- High-quality jewelry store theft incidents
+- Detailed incident descriptions with business names and locations
+- Geographic coverage across multiple monitored locations
+- Direct relevance to our primary target business type (jewelry stores)
+
+This scraper uses both Selenium WebDriver and requests as fallback to ensure
+reliable data collection from the JSA crimes category pages.
+
+Author: Augment Agent
+Version: 2.0.0
 """
 
+"""
+Standard library imports
+"""
 import time
 import re
 import requests
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any, Tuple
+
+"""
+Third-party imports
+"""
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -19,6 +38,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
+
+"""
+Local application imports
+"""
 
 # Import from base package
 from ..base import BaseScraper, Article
@@ -31,73 +54,142 @@ from ...utils.exceptions import ScraperNetworkError, ScraperParsingError
 logger = get_logger(__name__)
 
 class JSAScraper(BaseScraper):
-    """Selenium-based JSA scraper implementation"""
+    """
+    Selenium-based JSA (Jewelers Security Alliance) scraper implementation.
 
-    def __init__(self):
+    This scraper is our PRIMARY source for jewelry industry crime incidents,
+    providing high-quality data directly relevant to our target business type.
+
+    Features:
+        - Selenium WebDriver for dynamic content handling
+        - Requests fallback for reliability
+        - Multi-page scraping with pagination support
+        - Geographic location detection and filtering
+        - Comprehensive error handling and retry logic
+
+    The scraper focuses on the JSA crimes category pages, extracting:
+        - Incident titles and descriptions
+        - Dates and locations
+        - Business names and types
+        - Keywords for theft-related content
+    """
+
+    def __init__(self) -> None:
+        """Initialize the JSA scraper with configuration and monitoring settings."""
         super().__init__(JSA_CONFIG["name"], JSA_CONFIG["url"])
         self.config = JSA_CONFIG
         self.monitored_locations = MONITORED_LOCATIONS
-        self.driver = None
+        self.driver: Optional[webdriver.Chrome] = None
 
-    def setup_driver(self):
-        """Set up and return a configured Chrome/Chromium WebDriver"""
-        chrome_options = Options()
+    def setup_driver(self) -> Optional[webdriver.Chrome]:
+        """
+        Set up and return a configured Chrome/Chromium WebDriver.
 
-        # Basic options for headless mode
-        chrome_options.add_argument('--headless=new')
-        chrome_options.add_argument('--no-sandbox')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        # Additional options to help with running in CI/CD or environments without Chrome
-        chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--disable-extensions')
-        chrome_options.add_argument('--disable-software-rasterizer')
+        Returns:
+            Optional[webdriver.Chrome]: Configured WebDriver instance or None if setup fails
+        """
+        chrome_options = self._configure_chrome_options()
 
-        # Create the driver with retry logic
         max_retries = 3
         for attempt in range(max_retries):
             try:
                 logger.info(f"Attempting to create WebDriver (attempt {attempt + 1}/{max_retries})")
 
-                # Try to use Chromium directly (if installed)
-                try:
-                    logger.info("Attempting to use Chromium directly")
-                    chrome_options.binary_location = "/usr/bin/chromium-browser"  # Location of Chromium on this system
-                    # Add a unique user data directory to avoid conflicts
-                    import tempfile
-                    import os
-                    import uuid
-                    temp_dir = tempfile.mkdtemp(prefix="chromium_data_")
-                    # Add a UUID to ensure unique user data directory
-                    unique_id = str(uuid.uuid4())
-                    user_data_dir = os.path.join(temp_dir, unique_id)
-                    chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
-                    logger.info(f"Using temporary user data directory: {user_data_dir}")
-                    self.driver = webdriver.Chrome(options=chrome_options)
-                    self.driver.set_page_load_timeout(30)
-                    return self.driver
-                except Exception as chromium_error:
-                    logger.warning(f"Could not use Chromium directly: {str(chromium_error)}")
+                # Try Chromium first, then fall back to webdriver_manager
+                driver = self._try_chromium_driver(chrome_options) or self._try_webdriver_manager(chrome_options)
 
-                    # Fall back to webdriver_manager approach
-                    logger.info("Falling back to webdriver_manager")
-                    service = Service(ChromeDriverManager().install())
-                    self.driver = webdriver.Chrome(service=service, options=chrome_options)
-                    self.driver.set_page_load_timeout(30)
-                    return self.driver
+                if driver:
+                    driver.set_page_load_timeout(30)
+                    self.driver = driver
+                    return driver
 
             except Exception as e:
                 logger.error(f"Error creating WebDriver (attempt {attempt + 1}): {str(e)}")
-                if self.driver:
-                    try:
-                        self.driver.quit()
-                    except:
-                        pass
+                self._cleanup_driver()
                 if attempt < max_retries - 1:
                     time.sleep(2)
                 continue
 
         logger.error("Failed to create WebDriver after all retries")
         return None
+
+    def _configure_chrome_options(self) -> Options:
+        """Configure Chrome options for headless operation."""
+        chrome_options = Options()
+
+        # Basic options for headless mode
+        chrome_options.add_argument('--headless=new')
+        chrome_options.add_argument('--no-sandbox')
+        chrome_options.add_argument('--disable-dev-shm-usage')
+
+        # Additional options for CI/CD environments
+        chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument('--disable-software-rasterizer')
+
+        return chrome_options
+
+    def _try_chromium_driver(self, chrome_options: Options) -> Optional[webdriver.Chrome]:
+        """
+        Try to create a WebDriver using Chromium directly.
+
+        Args:
+            chrome_options: Configured Chrome options
+
+        Returns:
+            Optional[webdriver.Chrome]: WebDriver instance or None if failed
+        """
+        try:
+            logger.info("Attempting to use Chromium directly")
+            chrome_options.binary_location = "/usr/bin/chromium-browser"
+
+            # Create unique user data directory
+            user_data_dir = self._create_temp_user_data_dir()
+            chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
+            logger.info(f"Using temporary user data directory: {user_data_dir}")
+
+            return webdriver.Chrome(options=chrome_options)
+
+        except Exception as chromium_error:
+            logger.warning(f"Could not use Chromium directly: {str(chromium_error)}")
+            return None
+
+    def _try_webdriver_manager(self, chrome_options: Options) -> Optional[webdriver.Chrome]:
+        """
+        Try to create a WebDriver using webdriver_manager.
+
+        Args:
+            chrome_options: Configured Chrome options
+
+        Returns:
+            Optional[webdriver.Chrome]: WebDriver instance or None if failed
+        """
+        try:
+            logger.info("Falling back to webdriver_manager")
+            service = Service(ChromeDriverManager().install())
+            return webdriver.Chrome(service=service, options=chrome_options)
+
+        except Exception as e:
+            logger.error(f"webdriver_manager approach failed: {str(e)}")
+            return None
+
+    def _create_temp_user_data_dir(self) -> str:
+        """Create a unique temporary user data directory."""
+        import tempfile
+        import uuid
+
+        temp_dir = tempfile.mkdtemp(prefix="chromium_data_")
+        unique_id = str(uuid.uuid4())
+        return os.path.join(temp_dir, unique_id)
+
+    def _cleanup_driver(self) -> None:
+        """Clean up the current driver instance."""
+        if self.driver:
+            try:
+                self.driver.quit()
+            except:
+                pass
+            self.driver = None
 
     def fetch_page(self, url: str) -> Optional[str]:
         """Fetch a page with retry logic and better timeout handling"""

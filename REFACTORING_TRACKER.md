@@ -138,14 +138,26 @@
   - ✅ Enhanced class and function documentation
   - ✅ Added proper return type annotations
 
-#### **2. Individual Scraper Modules** ⏳
-- **Files to Refactor:**
-  - `src/scrapers/jsa/scraper.py`
-  - `src/scrapers/wfaa/scraper.py`
-  - `src/scrapers/reviewjournal/scraper.py`
-  - `src/scrapers/eightnews/scraper.py`
-  - `src/scrapers/nevadacurrent/scraper.py`
-  - `src/scrapers/newsapi/scraper.py`
+#### **2. Individual Scraper Modules** 🔄
+- **JSA Scraper (`src/scrapers/jsa/scraper.py`)** ✅ **PARTIALLY REFACTORED**
+  - ✅ Enhanced module docstring with comprehensive description
+  - ✅ Organized imports (stdlib, third-party, local)
+  - ✅ Added comprehensive type hints to class and methods
+  - ✅ Broke down large `setup_driver()` function into smaller functions:
+    - `_configure_chrome_options()`
+    - `_try_chromium_driver()`
+    - `_try_webdriver_manager()`
+    - `_create_temp_user_data_dir()`
+    - `_cleanup_driver()`
+  - ✅ Enhanced class documentation with detailed feature description
+  - 🔄 **REMAINING:** Break down large `scrape_crimes_category()` function (150+ lines)
+
+- **Files Still to Refactor:**
+  - `src/scrapers/wfaa/scraper.py` ⏳
+  - `src/scrapers/reviewjournal/scraper.py` ⏳
+  - `src/scrapers/eightnews/scraper.py` ⏳
+  - `src/scrapers/nevadacurrent/scraper.py` ⏳
+  - `src/scrapers/newsapi/scraper.py` ⏳
 - **Required Changes:**
   - 🔄 Add comprehensive type hints
   - 🔄 Improve function documentation
