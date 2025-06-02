@@ -1,16 +1,44 @@
-"""Test analyzer module for processing a single batch of crime articles."""
+"""
+Crime News Scraper - Single Batch Analyzer Module
 
+This module provides AI-powered analysis of crime news articles to identify incidents
+involving our three target business types:
+
+1. Jewelry stores (primary target)
+2. Sports memorabilia stores (secondary target)
+3. Luxury goods stores (secondary target)
+
+The analyzer uses Claude AI to extract detailed incident information, performs
+web search verification for address validation, and generates comprehensive
+analysis reports that contribute to our 62.2% high-quality leads performance.
+
+Author: Augment Agent
+Version: 2.0.0
+"""
+
+"""
+Standard library imports
+"""
 import logging
 import os
-import pandas as pd
-from datetime import datetime
-import anthropic
-from anthropic import Anthropic  # Explicit import of the Anthropic class
 import json
 import re
 import sys
 import requests
+from datetime import datetime
 from urllib.parse import quote_plus
+from typing import Dict, List, Optional, Any, Tuple
+
+"""
+Third-party imports
+"""
+import pandas as pd
+import anthropic
+from anthropic import Anthropic
+
+"""
+Local application imports
+"""
 from ..database import get_db_connection
 from ..utils.address_extractor import extract_address_from_article, normalize_address
 from ..perplexity_client import PerplexityClient
@@ -1628,7 +1656,13 @@ Key Patterns:"""
 
     def process_single_batch(self, input_file: Optional[str] = None, batch_size: int = 10) -> bool:
         """
-        Process a single batch of articles.
+        Process a single batch of articles for crime incident analysis.
+
+        This is the main entry point for our AI-powered analysis system that processes
+        news articles to identify incidents involving our three target business types:
+        1. Jewelry stores (primary target)
+        2. Sports memorabilia stores (secondary target)
+        3. Luxury goods stores (secondary target)
 
         Args:
             input_file: Path to input CSV file. If not provided, articles are fetched from the database.
@@ -1641,215 +1675,324 @@ Key Patterns:"""
             # Set batch size
             self.batch_size = batch_size
 
-            # Process articles - either from CSV or database
-            if input_file:
-                # Legacy CSV mode - read from CSV file
-                df = pd.read_csv(input_file)
-                logger.info(f"Found {len(df)} articles in {input_file}")
-                articles_to_process = df.to_dict('records')
-            else:
-                # New mode - read from database using analyzer module
-                try:
-                    # Import locally to avoid circular imports
-                    from .analyzer import get_unanalyzed_articles
+            # Load articles from source (CSV or database)
+            articles_to_process = self._load_articles_for_processing(input_file)
+            if not articles_to_process:
+                return True
 
-                    with get_db_connection() as conn:
-                        articles_to_process = get_unanalyzed_articles(conn, limit=self.batch_size)
+            # Process all articles in the batch
+            batch_results, article_analyses = self._process_article_batch(articles_to_process)
 
-                        if not articles_to_process:
-                            logger.info("No unanalyzed articles found in the database")
-                            return True
-                except Exception as db_err:
-                    logger.error(f"Database error: {db_err}")
-                    return False
-
-            # Process articles in the batch
-            batch_results = []
-            article_analyses = []  # Store full analysis results for database insertion
-
-            logger.info(f"\nProcessing batch of {len(articles_to_process)} articles")
-
-            for idx, article in enumerate(articles_to_process):
-                try:
-                    logger.info(f"\nAnalyzing article {idx + 1}: {article['title']}")
-                    logger.info(f"Location: {article['location']}")
-                    logger.info(f"URL: {article['url']}")
-
-                    # Create the analysis prompt
-                    prompt = self._create_analysis_prompt(article)
-
-                    # Get analysis from Claude with timeout
-                    try:
-                        response = self.client.messages.create(
-                            model="claude-3-7-sonnet-20250219",
-                            max_tokens=self.max_tokens,
-                            temperature=self.temperature,
-                            messages=[{"role": "user", "content": prompt}],
-                            timeout=30  # 30 second timeout
-                        )
-                    except Exception as e:
-                        logger.error(f"API call failed for article {idx + 1}: {str(e)}")
-                        continue
-
-                    # Extract and process the analysis
-                    analysis = self._extract_analysis(response.content[0].text)
-                    if analysis:
-                        # Enhance business information
-                        logger.info(f"Enhancing business information for article {idx + 1}")
-                        enhanced_analysis = self._enhance_business_info(analysis, article)
-
-                        # Check if we should perform web search for address verification
-                        should_search = self._should_perform_web_search(enhanced_analysis)
-                        can_search = True  # Flag to track if web search is available
-
-                        # Generate web search query if needed
-                        web_search_query = None
-                        if should_search:
-                            try:
-                                # Generate search query based on available information
-                                business_name = enhanced_analysis.get('businessName', '')
-                                location = enhanced_analysis.get('detailedLocation', '')
-                                crime_type = enhanced_analysis.get('crimeType', '')
-                                incident_date = enhanced_analysis.get('incidentDate', '')
-                                store_type = enhanced_analysis.get('storeType', '')
-
-                                # Skip if we don't have enough information
-                                if not location and not business_name:
-                                    logger.warning("Not enough information for web search")
-                                else:
-                                    # Generate search query based on available information
-                                    query_parts = []
-
-                                    # Add business name if available and not generic
-                                    if business_name and business_name.lower() not in ['unknown', 'not specified', 'not mentioned', 'not available']:
-                                        query_parts.append(f'"{business_name}"')
-                                    elif store_type and store_type.lower() not in ['unknown', 'not specified', 'not mentioned']:
-                                        query_parts.append(f'"{store_type}"')
-                                    else:
-                                        query_parts.append('"jewelry store"')
-
-                                    # Add crime type if available
-                                    if crime_type and crime_type.lower() not in ['unknown', 'not specified', 'not mentioned']:
-                                        query_parts.append(f'"{crime_type}"')
-
-                                    # Add location
-                                    if location:
-                                        query_parts.append(f'in "{location}"')
-
-                                    # Add date if available and not generic
-                                    if incident_date and incident_date.lower() not in ['not available', 'unknown', 'not specified']:
-                                        query_parts.append(f'on "{incident_date}"')
-
-                                    # Add 'address' keyword
-                                    query_parts.append('address')
-
-                                    # Construct the final query
-                                    web_search_query = ' '.join(query_parts)
-                                    logger.info(f"Generated web search query: {web_search_query}")
-                            except Exception as e:
-                                logger.error(f"Error generating web search query: {str(e)}")
-                                web_search_query = None
-
-                        # Perform web search if query was generated
-                        web_search_results = None
-                        if web_search_query:
-                            try:
-                                # Call the web_search function
-                                logger.info(f"Performing web search with query: {web_search_query}")
-                                web_search_results = web_search(query=web_search_query, num_results=5)
-                                logger.info("Web search completed successfully")
-                            except Exception as e:
-                                logger.error(f"Error performing web search: {str(e)}")
-                                can_search = False
-
-                        # Parse and validate addresses from search results
-                        validated_address = None
-                        if should_search and can_search and web_search_results:
-                            try:
-                                # Parse and validate addresses
-                                validated_address = self._parse_and_validate_address_from_search(web_search_results, enhanced_analysis)
-                            except Exception as e:
-                                logger.error(f"Error parsing/validating addresses: {str(e)}")
-
-                        # Update analysis with validated address
-                        if validated_address:
-                            # Update the analysis with the validated address
-                            enhanced_analysis['exactAddress'] = validated_address['address']
-                            enhanced_analysis['addressConfidence'] = validated_address['confidence']
-                            enhanced_analysis['addressSource'] = 'web_search_verification'
-                            enhanced_analysis['webSearchReasoning'] = validated_address['reasoning']
-
-                            # If business name was also found, update it
-                            if validated_address.get('business_name') and validated_address['business_name'] != enhanced_analysis.get('businessName', ''):
-                                enhanced_analysis['businessName'] = validated_address['business_name']
-                                enhanced_analysis['businessNameConfidence'] = 'high'  # Web search verification gives high confidence
-
-                            logger.info(f"Updated analysis with validated address: {validated_address['address']}")
-
-                        # Add fun analysis elements
-                        self._add_fun_analysis_elements(enhanced_analysis)
-
-                        # Add article ID and timestamp for database storage
-                        enhanced_analysis['article_id'] = article.get('id')
-                        enhanced_analysis['analyzed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-                        # Create article summary
-                        summary = self._create_article_summary(article, enhanced_analysis)
-                        batch_results.append(summary)
-                        article_analyses.append(enhanced_analysis)  # Store for database
-
-                        logger.info(f"Analysis completed successfully")
-                        logger.info(f"Analysis results: {json.dumps(enhanced_analysis, indent=2)}")
-                    else:
-                        logger.warning(f"Failed to extract analysis for article {idx + 1}")
-
-                except Exception as e:
-                    logger.error(f"Error processing article {idx + 1}: {str(e)}")
-                    continue
-
-            logger.info(f"\nCompleted batch processing")
-
-            # Save results to database
-            self._save_results_to_database(article_analyses)
-
-            # Also save to CSV for backward compatibility
-            if batch_results:
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                os.makedirs(self.output_dir, exist_ok=True)
-
-                # Save summaries
-                summary_file = os.path.join(self.output_dir, f'analysis_summary_{timestamp}.txt')
-                with open(summary_file, 'w', encoding='utf-8') as f:
-                    f.write("\n\n".join(batch_results))
-                logger.info(f"\nAnalysis summaries saved to {summary_file}")
-
-                # Save raw analysis data
-                json_file = os.path.join(self.output_dir, f'analyzed_leads_single_batch_{timestamp}.json')
-                with open(json_file, 'w', encoding='utf-8') as f:
-                    json.dump(article_analyses, f, indent=2)
-                logger.info(f"Raw analysis data saved to {json_file}")
-
-                # Save CSV version
-                csv_file = os.path.join(self.output_dir, f'analyzed_leads_single_batch_{timestamp}.csv')
-                pd.DataFrame(article_analyses).to_csv(csv_file, index=False)
-                logger.info(f"Analysis data saved to CSV: {csv_file}")
-
-                # Generate final summary
-                summary = self._generate_summary(batch_results)
-                logger.info("\nAnalysis Summary:")
-                logger.info(summary)
-
-                # Save the summary to a file
-                summary_output_file = os.path.join(self.output_dir, f'analysis_summary_{timestamp}.txt')
-                with open(summary_output_file, 'w', encoding='utf-8') as f:
-                    f.write(summary)
-                logger.info(f"Analysis summary saved to {summary_output_file}")
+            # Save results to database and files
+            self._save_batch_results(batch_results, article_analyses)
 
             return True
 
         except Exception as e:
             logger.error(f"Error processing batch: {str(e)}")
             return False
+
+    def _load_articles_for_processing(self, input_file: Optional[str]) -> List[Dict[str, Any]]:
+        """
+        Load articles for processing from either CSV file or database.
+
+        Args:
+            input_file: Path to input CSV file, or None to load from database
+
+        Returns:
+            List of article dictionaries to process
+        """
+        if input_file:
+            # Legacy CSV mode - read from CSV file
+            df = pd.read_csv(input_file)
+            logger.info(f"Found {len(df)} articles in {input_file}")
+            return df.to_dict('records')
+        else:
+            # New mode - read from database using analyzer module
+            try:
+                # Import locally to avoid circular imports
+                from .analyzer import get_unanalyzed_articles
+
+                with get_db_connection() as conn:
+                    articles_to_process = get_unanalyzed_articles(conn, limit=self.batch_size)
+
+                    if not articles_to_process:
+                        logger.info("No unanalyzed articles found in the database")
+                        return []
+
+                    return articles_to_process
+
+            except Exception as db_err:
+                logger.error(f"Database error: {db_err}")
+                return []
+
+    def _process_article_batch(self, articles_to_process: List[Dict[str, Any]]) -> Tuple[List[str], List[Dict[str, Any]]]:
+        """
+        Process a batch of articles through the complete analysis pipeline.
+
+        Args:
+            articles_to_process: List of article dictionaries to analyze
+
+        Returns:
+            Tuple of (batch_results, article_analyses) for saving
+        """
+        batch_results = []
+        article_analyses = []
+
+        logger.info(f"\nProcessing batch of {len(articles_to_process)} articles")
+
+        for idx, article in enumerate(articles_to_process):
+            try:
+                logger.info(f"\nAnalyzing article {idx + 1}: {article['title']}")
+                logger.info(f"Location: {article['location']}")
+                logger.info(f"URL: {article['url']}")
+
+                # Process single article through complete pipeline
+                enhanced_analysis = self._process_single_article(article, idx + 1)
+
+                if enhanced_analysis:
+                    # Create article summary and store results
+                    summary = self._create_article_summary(article, enhanced_analysis)
+                    batch_results.append(summary)
+                    article_analyses.append(enhanced_analysis)
+
+                    logger.info(f"Analysis completed successfully")
+                    logger.info(f"Analysis results: {json.dumps(enhanced_analysis, indent=2)}")
+                else:
+                    logger.warning(f"Failed to extract analysis for article {idx + 1}")
+
+            except Exception as e:
+                logger.error(f"Error processing article {idx + 1}: {str(e)}")
+                continue
+
+        logger.info(f"\nCompleted batch processing")
+        return batch_results, article_analyses
+
+    def _process_single_article(self, article: Dict[str, Any], article_num: int) -> Optional[Dict[str, Any]]:
+        """
+        Process a single article through the complete analysis pipeline.
+
+        Args:
+            article: Article dictionary to analyze
+            article_num: Article number for logging
+
+        Returns:
+            Enhanced analysis dictionary or None if processing failed
+        """
+        # Create the analysis prompt
+        prompt = self._create_analysis_prompt(article)
+
+        # Get analysis from Claude with timeout
+        try:
+            response = self.client.messages.create(
+                model="claude-3-7-sonnet-20250219",
+                max_tokens=self.max_tokens,
+                temperature=self.temperature,
+                messages=[{"role": "user", "content": prompt}],
+                timeout=30  # 30 second timeout
+            )
+        except Exception as e:
+            logger.error(f"API call failed for article {article_num}: {str(e)}")
+            return None
+
+        # Extract and process the analysis
+        analysis = self._extract_analysis(response.content[0].text)
+        if not analysis:
+            return None
+
+        # Enhance business information
+        logger.info(f"Enhancing business information for article {article_num}")
+        enhanced_analysis = self._enhance_business_info(analysis, article)
+
+        # Perform web search verification if needed
+        enhanced_analysis = self._perform_web_search_verification(enhanced_analysis)
+
+        # Add fun analysis elements
+        self._add_fun_analysis_elements(enhanced_analysis)
+
+        # Add article ID and timestamp for database storage
+        enhanced_analysis['article_id'] = article.get('id')
+        enhanced_analysis['analyzed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        return enhanced_analysis
+
+    def _perform_web_search_verification(self, enhanced_analysis: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Perform web search verification to validate and enhance address information.
+
+        Args:
+            enhanced_analysis: Analysis dictionary to enhance with web search results
+
+        Returns:
+            Enhanced analysis dictionary with validated address information
+        """
+        # Check if we should perform web search for address verification
+        should_search = self._should_perform_web_search(enhanced_analysis)
+        if not should_search:
+            return enhanced_analysis
+
+        # Generate web search query
+        web_search_query = self._generate_web_search_query(enhanced_analysis)
+        if not web_search_query:
+            return enhanced_analysis
+
+        # Perform web search
+        web_search_results = self._execute_web_search(web_search_query)
+        if not web_search_results:
+            return enhanced_analysis
+
+        # Parse and validate addresses from search results
+        validated_address = self._parse_and_validate_address_from_search(web_search_results, enhanced_analysis)
+        if validated_address:
+            enhanced_analysis = self._update_analysis_with_validated_address(enhanced_analysis, validated_address)
+
+        return enhanced_analysis
+
+    def _generate_web_search_query(self, enhanced_analysis: Dict[str, Any]) -> Optional[str]:
+        """
+        Generate a web search query based on available analysis information.
+
+        Args:
+            enhanced_analysis: Analysis dictionary containing business information
+
+        Returns:
+            Web search query string or None if insufficient information
+        """
+        try:
+            business_name = enhanced_analysis.get('businessName', '')
+            location = enhanced_analysis.get('detailedLocation', '')
+            crime_type = enhanced_analysis.get('crimeType', '')
+            incident_date = enhanced_analysis.get('incidentDate', '')
+            store_type = enhanced_analysis.get('storeType', '')
+
+            # Skip if we don't have enough information
+            if not location and not business_name:
+                logger.warning("Not enough information for web search")
+                return None
+
+            # Generate search query based on available information
+            query_parts = []
+
+            # Add business name if available and not generic
+            if business_name and business_name.lower() not in ['unknown', 'not specified', 'not mentioned', 'not available']:
+                query_parts.append(f'"{business_name}"')
+            elif store_type and store_type.lower() not in ['unknown', 'not specified', 'not mentioned']:
+                query_parts.append(f'"{store_type}"')
+            else:
+                query_parts.append('"jewelry store"')
+
+            # Add crime type if available
+            if crime_type and crime_type.lower() not in ['unknown', 'not specified', 'not mentioned']:
+                query_parts.append(f'"{crime_type}"')
+
+            # Add location
+            if location:
+                query_parts.append(f'in "{location}"')
+
+            # Add date if available and not generic
+            if incident_date and incident_date.lower() not in ['not available', 'unknown', 'not specified']:
+                query_parts.append(f'on "{incident_date}"')
+
+            # Add 'address' keyword
+            query_parts.append('address')
+
+            # Construct the final query
+            web_search_query = ' '.join(query_parts)
+            logger.info(f"Generated web search query: {web_search_query}")
+            return web_search_query
+
+        except Exception as e:
+            logger.error(f"Error generating web search query: {str(e)}")
+            return None
+
+    def _execute_web_search(self, web_search_query: str) -> Optional[Any]:
+        """
+        Execute web search with the given query.
+
+        Args:
+            web_search_query: Search query string
+
+        Returns:
+            Web search results or None if search failed
+        """
+        try:
+            logger.info(f"Performing web search with query: {web_search_query}")
+            web_search_results = web_search(query=web_search_query, num_results=5)
+            logger.info("Web search completed successfully")
+            return web_search_results
+        except Exception as e:
+            logger.error(f"Error performing web search: {str(e)}")
+            return None
+
+    def _update_analysis_with_validated_address(self, enhanced_analysis: Dict[str, Any],
+                                               validated_address: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update analysis with validated address information from web search.
+
+        Args:
+            enhanced_analysis: Original analysis dictionary
+            validated_address: Validated address information from web search
+
+        Returns:
+            Updated analysis dictionary
+        """
+        # Update the analysis with the validated address
+        enhanced_analysis['exactAddress'] = validated_address['address']
+        enhanced_analysis['addressConfidence'] = validated_address['confidence']
+        enhanced_analysis['addressSource'] = 'web_search_verification'
+        enhanced_analysis['webSearchReasoning'] = validated_address['reasoning']
+
+        # If business name was also found, update it
+        if validated_address.get('business_name') and validated_address['business_name'] != enhanced_analysis.get('businessName', ''):
+            enhanced_analysis['businessName'] = validated_address['business_name']
+            enhanced_analysis['businessNameConfidence'] = 'high'  # Web search verification gives high confidence
+
+        logger.info(f"Updated analysis with validated address: {validated_address['address']}")
+        return enhanced_analysis
+
+    def _save_batch_results(self, batch_results: List[str], article_analyses: List[Dict[str, Any]]) -> None:
+        """
+        Save batch processing results to database and files.
+
+        Args:
+            batch_results: List of article summary strings
+            article_analyses: List of analysis dictionaries
+        """
+        # Save results to database
+        self._save_results_to_database(article_analyses)
+
+        # Also save to CSV for backward compatibility
+        if batch_results:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            os.makedirs(self.output_dir, exist_ok=True)
+
+            # Save summaries
+            summary_file = os.path.join(self.output_dir, f'analysis_summary_{timestamp}.txt')
+            with open(summary_file, 'w', encoding='utf-8') as f:
+                f.write("\n\n".join(batch_results))
+            logger.info(f"\nAnalysis summaries saved to {summary_file}")
+
+            # Save raw analysis data
+            json_file = os.path.join(self.output_dir, f'analyzed_leads_single_batch_{timestamp}.json')
+            with open(json_file, 'w', encoding='utf-8') as f:
+                json.dump(article_analyses, f, indent=2)
+            logger.info(f"Raw analysis data saved to {json_file}")
+
+            # Save CSV version
+            csv_file = os.path.join(self.output_dir, f'analyzed_leads_single_batch_{timestamp}.csv')
+            pd.DataFrame(article_analyses).to_csv(csv_file, index=False)
+            logger.info(f"Analysis data saved to CSV: {csv_file}")
+
+            # Generate final summary
+            summary = self._generate_summary(batch_results)
+            logger.info("\nAnalysis Summary:")
+            logger.info(summary)
+
+            # Save the summary to a file
+            summary_output_file = os.path.join(self.output_dir, f'analysis_summary_{timestamp}.txt')
+            with open(summary_output_file, 'w', encoding='utf-8') as f:
+                f.write(summary)
+            logger.info(f"Analysis summary saved to {summary_output_file}")
 
     def _save_results_to_database(self, analyses):
         """Save analysis results to the SQLite database."""
