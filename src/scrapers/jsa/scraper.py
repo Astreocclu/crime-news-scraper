@@ -325,173 +325,32 @@ class JSAScraper(BaseScraper):
             logger.error(f"Error getting last page number: {e}")
             return 1
 
-    def scrape_crimes_category(self, max_pages: int = None) -> Dict[str, List[Dict]]:
+    def scrape_crimes_category(self, max_pages: Optional[int] = None) -> Dict[str, List[Dict[str, Any]]]:
         """
-        Scrape all pages from the crimes category
+        Scrape all pages from the JSA crimes category.
 
-        Parameters:
-        -----------
-        max_pages : int, optional
-            Maximum number of pages to scrape. If None, scrape all pages.
+        This is the main entry point for scraping jewelry industry crime incidents
+        from the JSA website, our primary source for target business incidents.
+
+        Args:
+            max_pages: Maximum number of pages to scrape. If None, scrape all pages.
 
         Returns:
-        --------
-        Dict[str, List[Dict]]
             Dictionary with locations as keys and lists of article dictionaries as values
         """
         logger.info("Starting JSA crimes category scraper...")
 
-        # Dictionary to store articles by location
-        location_articles = {}
-        for location in self.monitored_locations:
-            location_articles[location] = []
-
-        # Also track unclassified articles
-        location_articles["Other"] = []
+        # Initialize location-based article storage
+        location_articles = self._initialize_location_storage()
 
         try:
-            # Set up the driver
-            self.setup_driver()
-
-            # Get the first page
-            current_url = self.config["crimes_url"]
-            page_content = self.fetch_page(current_url)
-
-            if not page_content:
-                logger.error("Failed to get first page")
+            # Set up the driver and get initial page
+            soup, total_pages = self._setup_scraping_session(max_pages)
+            if not soup:
                 return location_articles
 
-            soup = BeautifulSoup(page_content, 'html.parser')
-
-            # Get total number of pages
-            total_pages = self.get_last_page_number(soup)
-            if max_pages:
-                total_pages = min(total_pages, max_pages)
-
-            logger.info(f"Will scrape {total_pages} pages")
-
-            # Process each page
-            for page_num in range(1, total_pages + 1):
-                logger.info(f"Processing page {page_num}/{total_pages}")
-
-                # Get page content
-                if page_num > 1:
-                    page_url = f"{current_url}page/{page_num}/"
-                    page_content = self.fetch_page(page_url)
-                    if not page_content:
-                        logger.error(f"Failed to get page {page_num}")
-                        continue
-                    soup = BeautifulSoup(page_content, 'html.parser')
-
-                # Find all post sections
-                posts = []
-                for selector in self.config["selectors"]["posts"]:
-                    if selector.startswith('.'):
-                        # Class selector
-                        posts.extend(soup.find_all(class_=selector[1:]))
-                    else:
-                        # Tag selector
-                        posts.extend(soup.find_all(selector))
-
-                if not posts:
-                    logger.warning(f"No post sections found on page {page_num}")
-                    continue
-
-                # Process each post section
-                for post in posts:
-                    try:
-                        # Get title
-                        title_elem = self.find_element(post, self.config["selectors"]["title"])
-                        if not title_elem:
-                            continue
-
-                        title = title_elem.get_text(strip=True)
-
-                        # Get URL if it's in a link
-                        url = ""
-                        link = title_elem.find("a")
-                        if link:
-                            url = link.get("href", "")
-                            if not url.startswith("http"):
-                                url = f"https://{url.lstrip('/')}"
-
-                        # Get date if available
-                        date = ""
-                        date_elem = self.find_element(post, self.config["selectors"]["date"])
-                        if date_elem:
-                            date = standardize_date(date_elem.get_text(strip=True))
-                            logger.info(f"Found article date: {date}")
-                        else:
-                            # Try to find date in the article content
-                            excerpt_elem = self.find_element(post, self.config["selectors"]["excerpt"])
-                            if excerpt_elem:
-                                excerpt_text = excerpt_elem.get_text(strip=True)
-                                # Look for dates in common formats
-                                date_patterns = [
-                                    r'(?:on|during|at)\s+(?:the\s+)?(?:night|morning|afternoon|evening|weekend)\s+of\s+(\d{1,2}/\d{1,2}/\d{2,4})',
-                                    r'(?:on|during|at)\s+(?:the\s+)?(?:night|morning|afternoon|evening|weekend)\s+of\s+(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})',
-                                    r'(?:on|during|at)\s+(?:the\s+)?(?:night|morning|afternoon|evening|weekend)\s+of\s+(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{2,4})',
-                                    r'occurred\s+(?:on|during|at)\s+(\d{1,2}/\d{1,2}/\d{2,4})',
-                                    r'occurred\s+(?:on|during|at)\s+(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})',
-                                    r'occurred\s+(?:on|during|at)\s+(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{2,4})',
-                                    r'(?:in|during)\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})',
-                                    r'(?:in|during)\s+((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})',
-                                    r'(?:published|posted|written)\s+(?:on|at)\s+(\d{1,2}/\d{1,2}/\d{2,4})',
-                                    r'(?:published|posted|written)\s+(?:on|at)\s+(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})',
-                                    r'(?:published|posted|written)\s+(?:on|at)\s+(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{2,4})',
-                                    r'(\d{1,2}/\d{1,2}/\d{2,4})',  # Fallback for any date in MM/DD/YYYY format
-                                    r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})',  # Fallback for any date with month name
-                                ]
-
-                                for pattern in date_patterns:
-                                    match = re.search(pattern, excerpt_text, re.IGNORECASE)
-                                    if match:
-                                        date = standardize_date(match.group(1))
-                                        logger.info(f"Found date in excerpt: {date}")
-                                        break
-
-                        # Get excerpt if available
-                        excerpt = ""
-                        excerpt_elem = self.find_element(post, self.config["selectors"]["excerpt"])
-                        if excerpt_elem:
-                            excerpt = excerpt_elem.get_text(strip=True)
-
-                        # Combine text for analysis
-                        content_to_check = f"{title} {excerpt}".lower()
-
-                        # Extract keywords and check if business related
-                        keywords = extract_keywords(content_to_check)
-                        business_related = is_business_related(content_to_check)
-
-                        # Create article object
-                        article_obj = {
-                            "title": title,
-                            "url": url,
-                            "date": date,
-                            "excerpt": excerpt,
-                            "source": self.name,
-                            "keywords": keywords,
-                            "is_theft_related": bool(keywords),
-                            "is_business_related": business_related
-                        }
-
-                        # Detect location and add to appropriate list
-                        location = detect_location(content_to_check)
-                        if location in location_articles:
-                            location_articles[location].append(article_obj)
-                        else:
-                            location_articles["Other"].append(article_obj)
-
-                    except Exception as e:
-                        logger.error(f"Error processing article: {e}")
-                        continue
-
-                # Log progress
-                total_articles = sum(len(articles) for articles in location_articles.values())
-                logger.info(f"Total articles found so far: {total_articles}")
-
-                # Add a small delay between pages
-                time.sleep(2)
+            # Process all pages
+            self._process_all_pages(soup, total_pages, location_articles)
 
             return location_articles
 
@@ -500,11 +359,281 @@ class JSAScraper(BaseScraper):
             return location_articles
 
         finally:
-            if self.driver:
-                try:
-                    self.driver.quit()
-                except:
-                    pass
+            self._cleanup_driver()
+
+    def _initialize_location_storage(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Initialize the location-based article storage dictionary."""
+        location_articles = {}
+        for location in self.monitored_locations:
+            location_articles[location] = []
+
+        # Also track unclassified articles
+        location_articles["Other"] = []
+        return location_articles
+
+    def _setup_scraping_session(self, max_pages: Optional[int]) -> Tuple[Optional[BeautifulSoup], int]:
+        """
+        Set up the scraping session and get initial page information.
+
+        Args:
+            max_pages: Maximum number of pages to scrape
+
+        Returns:
+            Tuple of (BeautifulSoup object, total_pages) or (None, 0) if failed
+        """
+        # Set up the driver
+        self.setup_driver()
+
+        # Get the first page
+        current_url = self.config["crimes_url"]
+        page_content = self.fetch_page(current_url)
+
+        if not page_content:
+            logger.error("Failed to get first page")
+            return None, 0
+
+        soup = BeautifulSoup(page_content, 'html.parser')
+
+        # Get total number of pages
+        total_pages = self.get_last_page_number(soup)
+        if max_pages:
+            total_pages = min(total_pages, max_pages)
+
+        logger.info(f"Will scrape {total_pages} pages")
+        return soup, total_pages
+
+    def _process_all_pages(self, initial_soup: BeautifulSoup, total_pages: int,
+                          location_articles: Dict[str, List[Dict[str, Any]]]) -> None:
+        """
+        Process all pages in the crimes category.
+
+        Args:
+            initial_soup: BeautifulSoup object for the first page
+            total_pages: Total number of pages to process
+            location_articles: Dictionary to store articles by location
+        """
+        current_url = self.config["crimes_url"]
+
+        for page_num in range(1, total_pages + 1):
+            logger.info(f"Processing page {page_num}/{total_pages}")
+
+            # Get page content (use initial_soup for first page)
+            if page_num == 1:
+                soup = initial_soup
+            else:
+                soup = self._fetch_page_soup(current_url, page_num)
+                if not soup:
+                    continue
+
+            # Process posts on this page
+            self._process_page_posts(soup, page_num, location_articles)
+
+            # Log progress and add delay
+            self._log_progress_and_delay(location_articles)
+
+    def _fetch_page_soup(self, base_url: str, page_num: int) -> Optional[BeautifulSoup]:
+        """
+        Fetch and parse a specific page.
+
+        Args:
+            base_url: Base URL for the crimes category
+            page_num: Page number to fetch
+
+        Returns:
+            BeautifulSoup object or None if failed
+        """
+        page_url = f"{base_url}page/{page_num}/"
+        page_content = self.fetch_page(page_url)
+
+        if not page_content:
+            logger.error(f"Failed to get page {page_num}")
+            return None
+
+        return BeautifulSoup(page_content, 'html.parser')
+
+    def _process_page_posts(self, soup: BeautifulSoup, page_num: int,
+                           location_articles: Dict[str, List[Dict[str, Any]]]) -> None:
+        """
+        Process all posts on a single page.
+
+        Args:
+            soup: BeautifulSoup object for the page
+            page_num: Current page number
+            location_articles: Dictionary to store articles by location
+        """
+        # Find all post sections
+        posts = self._find_posts(soup)
+
+        if not posts:
+            logger.warning(f"No post sections found on page {page_num}")
+            return
+
+        # Process each post
+        for post in posts:
+            try:
+                article = self._extract_article_data(post)
+                if article:
+                    self._categorize_and_store_article(article, location_articles)
+
+            except Exception as e:
+                logger.error(f"Error processing article: {e}")
+                continue
+
+    def _find_posts(self, soup: BeautifulSoup) -> List[Any]:
+        """Find all post sections on a page."""
+        posts = []
+        for selector in self.config["selectors"]["posts"]:
+            if selector.startswith('.'):
+                # Class selector
+                posts.extend(soup.find_all(class_=selector[1:]))
+            else:
+                # Tag selector
+                posts.extend(soup.find_all(selector))
+        return posts
+
+    def _log_progress_and_delay(self, location_articles: Dict[str, List[Dict[str, Any]]]) -> None:
+        """Log current progress and add delay between pages."""
+        total_articles = sum(len(articles) for articles in location_articles.values())
+        logger.info(f"Total articles found so far: {total_articles}")
+        time.sleep(2)  # Small delay between pages
+
+    def _extract_article_data(self, post: Any) -> Optional[Dict[str, Any]]:
+        """
+        Extract article data from a post element.
+
+        Args:
+            post: BeautifulSoup post element
+
+        Returns:
+            Article dictionary or None if extraction failed
+        """
+        # Get title
+        title_elem = self.find_element(post, self.config["selectors"]["title"])
+        if not title_elem:
+            return None
+
+        title = title_elem.get_text(strip=True)
+
+        # Get URL if it's in a link
+        url = self._extract_article_url(title_elem)
+
+        # Get date
+        date = self._extract_article_date(post)
+
+        # Get excerpt
+        excerpt = self._extract_article_excerpt(post)
+
+        # Combine text for analysis
+        content_to_check = f"{title} {excerpt}".lower()
+
+        # Extract keywords and check if business related
+        keywords = extract_keywords(content_to_check)
+        business_related = is_business_related(content_to_check)
+
+        return {
+            "title": title,
+            "url": url,
+            "date": date,
+            "excerpt": excerpt,
+            "source": self.name,
+            "keywords": keywords,
+            "is_theft_related": bool(keywords),
+            "is_business_related": business_related
+        }
+
+    def _extract_article_url(self, title_elem: Any) -> str:
+        """Extract URL from title element."""
+        url = ""
+        link = title_elem.find("a")
+        if link:
+            url = link.get("href", "")
+            if not url.startswith("http"):
+                url = f"https://{url.lstrip('/')}"
+        return url
+
+    def _extract_article_date(self, post: Any) -> str:
+        """
+        Extract date from post element.
+
+        Args:
+            post: BeautifulSoup post element
+
+        Returns:
+            Standardized date string or empty string if not found
+        """
+        # Try to get date from date element first
+        date_elem = self.find_element(post, self.config["selectors"]["date"])
+        if date_elem:
+            date = standardize_date(date_elem.get_text(strip=True))
+            logger.info(f"Found article date: {date}")
+            return date
+
+        # Try to find date in the article content
+        excerpt_elem = self.find_element(post, self.config["selectors"]["excerpt"])
+        if excerpt_elem:
+            excerpt_text = excerpt_elem.get_text(strip=True)
+            return self._extract_date_from_text(excerpt_text)
+
+        return ""
+
+    def _extract_date_from_text(self, text: str) -> str:
+        """
+        Extract date from text using regex patterns.
+
+        Args:
+            text: Text to search for dates
+
+        Returns:
+            Standardized date string or empty string if not found
+        """
+        date_patterns = [
+            r'(?:on|during|at)\s+(?:the\s+)?(?:night|morning|afternoon|evening|weekend)\s+of\s+(\d{1,2}/\d{1,2}/\d{2,4})',
+            r'(?:on|during|at)\s+(?:the\s+)?(?:night|morning|afternoon|evening|weekend)\s+of\s+(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})',
+            r'(?:on|during|at)\s+(?:the\s+)?(?:night|morning|afternoon|evening|weekend)\s+of\s+(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{2,4})',
+            r'occurred\s+(?:on|during|at)\s+(\d{1,2}/\d{1,2}/\d{2,4})',
+            r'occurred\s+(?:on|during|at)\s+(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})',
+            r'occurred\s+(?:on|during|at)\s+(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{2,4})',
+            r'(?:in|during)\s+((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})',
+            r'(?:in|during)\s+((?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4})',
+            r'(?:published|posted|written)\s+(?:on|at)\s+(\d{1,2}/\d{1,2}/\d{2,4})',
+            r'(?:published|posted|written)\s+(?:on|at)\s+(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})',
+            r'(?:published|posted|written)\s+(?:on|at)\s+(\d{1,2}\s+(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{2,4})',
+            r'(\d{1,2}/\d{1,2}/\d{2,4})',  # Fallback for any date in MM/DD/YYYY format
+            r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{2,4})',  # Fallback for any date with month name
+        ]
+
+        for pattern in date_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                date = standardize_date(match.group(1))
+                logger.info(f"Found date in excerpt: {date}")
+                return date
+
+        return ""
+
+    def _extract_article_excerpt(self, post: Any) -> str:
+        """Extract excerpt from post element."""
+        excerpt_elem = self.find_element(post, self.config["selectors"]["excerpt"])
+        if excerpt_elem:
+            return excerpt_elem.get_text(strip=True)
+        return ""
+
+    def _categorize_and_store_article(self, article: Dict[str, Any],
+                                    location_articles: Dict[str, List[Dict[str, Any]]]) -> None:
+        """
+        Categorize article by location and store it.
+
+        Args:
+            article: Article dictionary
+            location_articles: Dictionary to store articles by location
+        """
+        content_to_check = f"{article['title']} {article['excerpt']}".lower()
+        location = detect_location(content_to_check)
+
+        if location in location_articles:
+            location_articles[location].append(article)
+        else:
+            location_articles["Other"].append(article)
 
     def scrape(self, deep_check: bool = True, max_deep_check: int = 20) -> Dict[str, List[Dict]]:
         """

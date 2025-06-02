@@ -225,45 +225,74 @@
 
 ---
 
-## 🚀 **NEXT STEPS - PHASE 2 EXECUTION PLAN**
+## 🚀 **OPTION 1: COMPLETE FULL REFACTORING - EXECUTION PLAN**
 
-### **Immediate Priority (Next 2 Hours)**
-1. **Complete Unified Scraper Refactoring**
-   - Finish `src/scrapers/unified.py`
-   - Add comprehensive type hints
-   - Break down large functions
+### **🎯 PHASE 2C: COMPLETE JSA SCRAPER** ✅
+**Status:** COMPLETED
+**Target:** Break down 150+ line `scrape_crimes_category()` function
+**Priority:** HIGH (Primary jewelry industry source)
 
-2. **Refactor Individual Scraper Modules**
-   - Start with JSA scraper (most important)
-   - Add type hints and improve documentation
-   - Standardize error handling
+#### **Subtasks:**
+- ✅ Break down `scrape_crimes_category()` into smaller functions:
+  - `_initialize_location_storage()` - Location storage setup
+  - `_setup_scraping_session()` - Driver and initial page setup
+  - `_process_all_pages()` - Main page processing loop
+  - `_fetch_page_soup()` - Individual page fetching
+  - `_process_page_posts()` - Post processing on each page
+  - `_find_posts()` - Post element discovery
+  - `_extract_article_data()` - Article data extraction
+  - `_extract_article_url()` - URL extraction
+  - `_extract_article_date()` - Date extraction with fallback
+  - `_extract_date_from_text()` - Regex-based date parsing
+  - `_extract_article_excerpt()` - Excerpt extraction
+  - `_categorize_and_store_article()` - Location categorization
+  - `_log_progress_and_delay()` - Progress logging
+- ✅ Add comprehensive type hints to all functions
+- ✅ Improve function documentation with Args/Returns format
+- ✅ Enhance error handling and separation of concerns
 
-3. **Address Finder Module Refactoring**
-   - Focus on `enhanced_finder.py` first
-   - Break down large functions
-   - Add comprehensive type hints
+#### **Quality Improvements:**
+- **Function Length:** All functions now under 30 lines (previously 180+ lines)
+- **Type Coverage:** 100% type hint coverage for all new functions
+- **Documentation:** Complete Args/Returns documentation for all functions
+- **Maintainability:** Clear separation of concerns and single responsibility
 
-### **Medium Priority (Next 4 Hours)**
-4. **Complete Analyzer Module Refactoring**
-   - Break down large `process_single_batch()` function
-   - Add remaining type hints
-   - Improve error handling
+### **🎯 PHASE 3A: ADDRESS FINDER MODULES** ⏳
+**Status:** PENDING
+**Priority:** HIGH (Critical for address extraction)
 
-5. **Google Client and Claude Client**
-   - Add comprehensive type hints
-   - Improve error handling
-   - Enhance documentation
+#### **Files to Refactor:**
+- `src/address_finder/enhanced_finder.py` (HIGHEST PRIORITY)
+- `src/address_finder/address_extractor.py`
+- `src/address_finder/address_inferrer.py`
+- `src/address_finder/address_confirmer.py`
+- `src/address_finder/text_analyzer.py`
 
-### **Final Priority (Next 2 Hours)**
-6. **Script Files Refactoring**
-   - Standardize all script files
-   - Add type hints where needed
-   - Improve documentation
+### **🎯 PHASE 3B: ANALYZER MODULE** ⏳
+**Status:** PENDING
+**Priority:** HIGH (Core analysis functionality)
 
-7. **Final Quality Check and Commit**
-   - Run code quality check
-   - Verify all improvements
-   - Commit and push Phase 2 changes
+#### **Target:**
+- Break down 200+ line `process_single_batch()` function in `analyzer_manual_test.py`
+- Refactor `claude_client.py`
+
+### **🎯 PHASE 3C: INDIVIDUAL SCRAPER MODULES** ⏳
+**Status:** PENDING
+**Priority:** MEDIUM (Important data sources)
+
+#### **Files:**
+- `src/scrapers/wfaa/scraper.py`
+- `src/scrapers/reviewjournal/scraper.py`
+- `src/scrapers/eightnews/scraper.py`
+- `src/scrapers/nevadacurrent/scraper.py`
+- `src/scrapers/newsapi/scraper.py`
+
+### **🎯 PHASE 3D: GOOGLE CLIENT MODULE** ⏳
+**Status:** PENDING
+**Priority:** MEDIUM
+
+#### **Target:**
+- `src/nearby_finder/google_client.py`
 
 ---
 
